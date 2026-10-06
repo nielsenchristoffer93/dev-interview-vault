@@ -1,0 +1,56 @@
+# THE FIX:
+# 1. Matchande selector 'app: payment-api' kopplar ihop Service med Pods.
+# 2. Namngiven port 'http': Både i Deployment (containerPort: 8080) och i Service (targetPort: http).
+#    Detta eliminerar risken för hårdkodade portkrockar!
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-deployment
+  labels:
+    app: payment-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: payment-api
+  template:
+    metadata:
+      labels:
+        app: payment-api
+    spec:
+      containers:
+        - name: app
+          image: spring-boot-app:latest
+          ports:
+            - name: http # FIX: Namngiven port
+              containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+spec:
+  type: ClusterIP
+  selector:
+    app: payment-api # FIX: Matchar exakt poddens labels
+  ports:
+    - name: http
+      port: 80
+      targetPort: http # FIX: Pekar på containerns namngivna port 'http'
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: payment-ingress
+spec:
+  rules:
+    - host: api.vault.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: payment-service
+                port:
+                  number: 80

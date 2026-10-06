@@ -1,0 +1,47 @@
+# THE FIX:
+# 1. Separat management-port 8081 för mätvärden och hälsoprober.
+# 2. StartupProbe: Ger Spring Boot upp till 60 sekunder att starta upp lugnt.
+# 3. LivenessProbe pekar på /actuator/health/liveness (enbart intern hälsa).
+# 4. ReadinessProbe pekar på /actuator/health/readiness (DB-hälsa, plockar bort ur endpoints utan omstart).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: resilient-service
+spec:
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: resilient-api
+    spec:
+      containers:
+        - name: app
+          image: my-app:latest
+          ports:
+            - name: http
+              containerPort: 8080 # Kundtrafik
+            - name: management
+              containerPort: 8081 # Interna probes & Prometheus
+          # 1. STARTUP PROBE (vänta in initialisering)
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+            failureThreshold: 30
+            periodSeconds: 2
+          # 2. LIVENESS PROBE (dödar och startar om BARA vid intern dead lock)
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # 3. READINESS PROBE (styr trafikdirigering i Service Endpoints)
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: management
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 2

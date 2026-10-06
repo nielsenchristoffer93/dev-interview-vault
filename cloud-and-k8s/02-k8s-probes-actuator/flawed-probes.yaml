@@ -1,0 +1,24 @@
+# THE FLAW:
+# 1. Liveness probe pekar mot /actuator/health på port 8080.
+#    /actuator/health kontrollerar databas, disk, redis, etc.
+#    Om databasen tappar nätverk dödar K8s containern i en ond loop!
+# 2. Ingen startupProbe - podden dödas innan Spring Boot ens hunnit starta.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flawed-service
+spec:
+  replicas: 3
+  template:
+    spec:
+      containers:
+        - name: app
+          image: my-app:latest
+          ports:
+            - containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /actuator/health # FLAW: Externa beroenden inkluderas här!
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
