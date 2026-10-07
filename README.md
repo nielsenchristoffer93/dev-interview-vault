@@ -62,20 +62,17 @@ Varje labbmodul är strikt isolerad och byggd kring samma trestegsmönster:
 
 ## 🚀 Snabbstart & Lab-infrastruktur
 
-### ⚡ Allt-i-ett installationsskript i WSL / Ubuntu (Rekommenderat)
+### ⚡ Allt-i-ett installationsskript (Linux / Bash)
 För att snabbt verifiera och installera alla förutsättningar (`curl`, `jq`, `kubectl`, `minikube`), fixa Docker-rättigheter och starta alla Compose-containrar i ett enda steg:
 
 ```bash
-# Kör inifrån WSL / Ubuntu:
 ./setup-prerequisites.sh
 
 # Vill du även att Minikube startas automatiskt direkt:
 ./setup-prerequisites.sh --with-minikube
 ```
-*(Eller anropa det direkt från Windows-terminalen med: `wsl ./setup-prerequisites.sh`)*
 
 ---
-
 
 ### Manuell start av delar
 
@@ -113,19 +110,13 @@ För att köra laborationerna i `cloud-and-k8s/` samt OOM-simuleringen i `backen
 ---
 
 
-## ☕ Köra Backend & Spring Boot-applikationer (via WSL)
-
-Eftersom Java och Maven körs i WSL finns enkla instruktioner för att antingen köra interaktivt inifrån WSL eller direkt från PowerShell / Windows Terminal via `wsl`.
+## ☕ Köra Backend & Spring Boot-applikationer
 
 ### 1. Köra alla tester över hela backend (Aggregator)
 Kör alla 6 moduler (Resilience, Concurrency, JVM Memory, JPA, Maven, Testing Pyramid) i ett enda svep:
 ```bash
-# Inifrån WSL:
 cd backend
 mvn test
-
-# Eller direkt från Windows PowerShell:
-wsl bash -l -c "cd /mnt/c/Users/s103228/.repositories/dev-interview-vault/backend && mvn test"
 ```
 
 ### 2. Köra tester för en specifik modul
@@ -145,9 +136,6 @@ Modulen `backend/01-spring-resilience` är en fullt körbar Spring Boot 3-applik
 # Starta servern:
 cd backend/01-spring-resilience
 mvn spring-boot:run
-
-# Eller från PowerShell:
-wsl bash -l -c "cd /mnt/c/Users/s103228/.repositories/dev-interview-vault/backend/01-spring-resilience && mvn spring-boot:run"
 ```
 När applikationen är startad:
 * **HTTP API:** `http://localhost:8080/api/payment/safe?tx=ORD-1`

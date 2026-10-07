@@ -55,17 +55,12 @@ curl -s http://localhost:8081/actuator/metrics/resilience4j.circuitbreaker.failu
 
 ---
 
-## 6. Så här kör du Spring Boot-applikationen & testerna (WSL / Linux)
+## 6. Så här kör du Spring Boot-applikationen & testerna
 
 ### A. Kör enhet- och integrationstesterna
-Från modulkatalogen i WSL:
 ```bash
 cd backend/01-spring-resilience
 mvn clean test
-```
-Eller direkt från Windows PowerShell (via WSL):
-```powershell
-wsl bash -l -c "cd /mnt/c/Users/s103228/.repositories/dev-interview-vault/backend/01-spring-resilience && mvn test"
 ```
 
 ### B. Starta Spring Boot-servern lokalt
@@ -113,12 +108,8 @@ Applikationen startar på:
 ### D. Kör det automatiserade live-demoskriptet
 Ett färdigt interaktivt bash-skript som automatiskt kör hela livscykeln (CLOSED -> OPEN -> Fail-Fast mätning -> Vänta 5s -> HALF_OPEN -> Återhämtning till CLOSED) med färgkodade utskrifter:
 ```bash
-# Inifrån WSL:
 cd backend/01-spring-resilience
 ./demo-circuit-breaker.sh
-
-# Eller direkt från Windows PowerShell:
-wsl bash -l -c "cd /mnt/c/Users/s103228/.repositories/dev-interview-vault/backend/01-spring-resilience && ./demo-circuit-breaker.sh"
 ```
 
 ---
