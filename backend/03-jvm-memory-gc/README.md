@@ -104,3 +104,86 @@ wsl bash -l -c "cd /mnt/c/Users/s103228/.repositories/dev-interview-vault/backen
 
 Skriptet startar [MemoryLeakSimulation](file:///backend/03-jvm-memory-gc/src/main/java/com/vault/memory/MemoryLeakSimulation.java) med begränsad heap (`-Xmx32m`) och flaggan `-XX:+HeapDumpOnOutOfMemoryError`. Inom 2 sekunder får du en färdig `oom.hprof` i mappen som du kan öppna och inspektera i t.ex. **Eclipse Memory Analyzer (MAT)** eller **VisualVM**!
 
+---
+
+## 7. Så här testar du i Kubernetes (Minikube, Kind eller Docker Desktop)
+
+Om du har ett lokalt Kubernetes-kluster (t.ex. Minikube, Kind eller Docker Desktop K8s) och faktiskt vill testa `kubectl`-kommandona i praktiken, finns en färdig [Dockerfile](file:///backend/03-jvm-memory-gc/Dockerfile) och manifestet [k8s-oom-demo.yaml](file:///backend/03-jvm-memory-gc/k8s-oom-demo.yaml).
+
+### Steg 1: Bygg container-imagen
+Stå i `backend/03-jvm-memory-gc`:
+```bash
+docker build -t jvm-memory-leak:1.0 .
+
+# Om du använder Kind, ladda in imagen i klustret:
+# kind load docker-image jvm-memory-leak:1.0
+
+# Om du använder Minikube, kör detta innan du bygger så imagen hamnar i minikubes docker:
+# eval $(minikube docker-env)
+```
+
+### Steg 2: Applicera Kubernetes-manifesten
+```bash
+kubectl apply -f k8s-oom-demo.yaml
+```
+
+Detta startar två poddar med olika konfiguration:
+1. **`oomkilled-pod` (The Flaw):** Har container limit på 64Mi men JVM startas med `-Xmx128m`.
+2. **`heapdump-pod` (The Fix):** Har container limit på 128Mi med `-XX:MaxRAMPercentage=50.0` och monterad volym för dumpen.
+
+---
+
+### Steg 3: Verifiera OOMKilled & Exit Code 137 på `oomkilled-pod`
+Efter några sekunder när minnet överskrider 64Mi skickar Linux cgroups `SIGKILL (137)`:
+```bash
+kubectl get pod oomkilled-pod
+```
+Output visar `OOMKilled` eller `Error`:
+```
+NAME             READY   STATUS      RESTARTS   AGE
+oomkilled-pod    0/1     OOMKilled   0          15s
+```
+
+Inspektera poddens termineringsorsak:
+```bash
+kubectl describe pod oomkilled-pod | grep -E "(State|Reason|Exit Code)"
+```
+Förväntat utfall i K8s:
+```text
+State:          Terminated
+  Reason:       OOMKilled
+  Exit Code:    137
+```
+> **Slutsats:** Inga Java-loggar eller stacktraces hinner skrivas. Processen terminerades brutalt av Linux-kärnan.
+
+---
+
+### Steg 4: Verifiera och extrahera Heap Dump från `heapdump-pod`
+I `heapdump-pod` klipper JVM:en minnet internt (`OutOfMemoryError`) innan Linux cgroups slår till:
+```bash
+# Se loggen där JVM själv dumpar minnet innan avslut:
+kubectl logs heapdump-pod
+```
+Output:
+```text
+Dumping heap to /dumps/oom.hprof ...
+Heap dump file created [...]
+Exception in thread "main" java.lang.OutOfMemoryError: Java heap space
+```
+
+Ladda ner heap dumpen från poddens volym till din lokala maskin:
+```bash
+kubectl cp heapdump-pod:/dumps/oom.hprof ./oom.hprof
+
+# Verifiera att filen laddades ner:
+ls -lh ./oom.hprof
+```
+
+---
+
+### Steg 5: Städa upp
+```bash
+kubectl delete -f k8s-oom-demo.yaml
+```
+
+
