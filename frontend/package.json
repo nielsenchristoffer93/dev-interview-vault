@@ -1,0 +1,27 @@
+{
+  "name": "dev-interview-vault-frontend",
+  "version": "1.0.0",
+  "description": "Frontend interview labs & verification tests for dev-interview-vault",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.67.1",
+    "@tanstack/react-virtual": "^3.13.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^3.24.2",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.8",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "happy-dom": "^17.1.8",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.7"
+  }
+}

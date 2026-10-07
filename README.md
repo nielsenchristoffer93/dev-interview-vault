@@ -38,10 +38,18 @@ Varje labbmodul är strikt isolerad och byggd kring samma trestegsmönster:
 | [02-rendering-performance](file:///frontend/02-rendering-performance/README.md) | Onödiga re-renders, Memo & Virtualisering | Input Lag / UI Jank, Parent Re-render Cascade, Referential Equality, `React.memo`, `useCallback`, `useMemo`, DOM Node Thrashing, `@tanstack/react-virtual` |
 | [03-auth-session-flow](file:///frontend/03-auth-session-flow/README.md) | BFF-mönster, Cookie-flaggor & XSS vs CSRF | XSS Exfiltration i `localStorage`, Supply Chain Attacks, `HttpOnly` + `Secure` + `SameSite=Lax`, Backend-for-Frontend (BFF), Refresh Token Rotation |
 | [04-optimistic-updates](file:///frontend/04-optimistic-updates/README.md) | TanStack Query mutation & rollback | Perceived Latency, Spinner UX Elimination, Ghost Updates, Snapshot Rollback (`context.previousData`), `cancelQueries`, `onSettled` Invalidation |
+| [05-typescript-type-safety](file:///frontend/05-typescript-type-safety/README.md) | Type Erasure, Zod Schemas & Branded Types | Type Erasure, Type Assertion (`as`), Parse Don't Validate, Zod Schema, Exhaustiveness Check (`never`), `assertNever`, Branded Types (Nominal Typing) |
 
 ---
 
-### ☁️ 3. Cloud & Kubernetes
+### 🗄️ 3. Database (PostgreSQL / SQL / Internals)
+| Modul | Fokusområde | Nyckelbegrepp (Keyword Bingo) |
+| :--- | :--- | :--- |
+| [01-indexes-locks-and-plans](file:///database/01-indexes-locks-and-plans/README.md) | B-Tree Index, DDL Locks & Transaction Isolation | B-Tree Index, Leftmost Prefix Rule, Seq Scan vs Index Scan, Range Trap, `ACCESS EXCLUSIVE LOCK`, Lock Queue, `lock_timeout`, Write Skew, `SELECT FOR UPDATE`, SSI |
+
+---
+
+### ☁️ 4. Cloud & Kubernetes
 | Modul | Fokusområde | Nyckelbegrepp (Keyword Bingo) |
 | :--- | :--- | :--- |
 | [01-k8s-pod-to-ingress](file:///cloud-and-k8s/01-k8s-pod-to-ingress/README.md) | Ingress -> Service -> Pod port forwarding | TargetPort vs Port, Selector Mismatch, `Endpoints: <none>`, 502 Bad Gateway vs 503 Service Unavailable, Named Ports, ClusterIP routing |
@@ -51,12 +59,13 @@ Varje labbmodul är strikt isolerad och byggd kring samma trestegsmönster:
 
 ---
 
-### 📐 4. System Design
+### 📐 5. System Design
 | Modul | Fokusområde | Nyckelbegrepp (Keyword Bingo) |
 | :--- | :--- | :--- |
 | [idempotency-patterns](file:///system-design/idempotency-patterns/README.md) | Idempotens & distribuerad låsning | Idempotency Key (UUID), Double-Charging, At-Least-Once Delivery, Redis `SET NX EX`, Result Caching, Distributed Locks, Fencing Tokens |
 | [outbox-pattern](file:///system-design/outbox-pattern/README.md) | Transactional Outbox & Debezium CDC | The Dual-Write Problem, 2PC Anti-Pattern, Local ACID Atomicity, Change Data Capture (CDC), PostgreSQL WAL, Debezium, `SKIP LOCKED` Worker |
 | [rate-limiting](file:///system-design/rate-limiting/README.md) | Token Bucket vs Leaky Bucket | Boundary Burst Vulnerability, Fixed Window Counter, Token Bucket (Burstiness), Leaky Bucket (Traffic Shaping), Sliding Window, Redis Lua Script, 429 Too Many Requests |
+| [rabbitmq-vs-kafka](file:///system-design/rabbitmq-vs-kafka/README.md) | RabbitMQ vs Kafka & Message Brokers | Competing Consumers, Out-of-Order Execution, Partition Key Hashing, Prefetch Count (`basic.qos`), Consumer Starvation, Poison Pill, Dead-Letter Exchange (DLX), DLT |
 
 ---
 
@@ -148,6 +157,49 @@ Två moduler är fullt körbara Spring Boot 3-applikationer redo för HTTP-trafi
 
 ---
 
+## ⚛️ Köra Frontend & Vitest-tester
+
+Alla 5 frontend-moduler körs med Vitest och har fullständig TypeScript-stöd:
+
+```bash
+cd frontend
+
+# Installera beroenden
+npm install
+
+# Kör alla 15 verifieringstester över alla 5 moduler
+npm test
+
+# Validera TypeScript strikt kompilering
+npm run typecheck
+```
+
+---
+
+## 🗄️ Köra Databas & PostgreSQL-tester
+
+```bash
+cd database/01-indexes-locks-and-plans
+
+# Alternativ A: Live-verifiering mot lokal PostgreSQL (WSL / Docker)
+./verify-database.sh
+
+# Alternativ B: Automatiserade JUnit 5 & JDBC-tester (H2 PostgreSQL mode)
+mvn test
+```
+
+---
+
+## 📐 Köra System Design & Broker-tester
+
+```bash
+# Verifiera RabbitMQ vs Kafka (Competing consumers, Prefetch starvation, DLQ):
+cd system-design/rabbitmq-vs-kafka
+mvn test
+```
+
+---
+
 ## 🤖 Interaktiva Live-demonstrationsskript (Bash)
 
 Flera moduler har färdiga interaktiva demonstrationsskript med färgkodade utskrifter:
@@ -156,6 +208,7 @@ Flera moduler har färdiga interaktiva demonstrationsskript med färgkodade utsk
 * **Thread Pool Starvation & Port-isolering:** `backend/01-spring-resilience/demo-thread-starvation.sh`
 * **Race Conditions & Lost Updates:** `backend/02-concurrency-threads/demo-race-condition.sh`
 * **Lokal OutOfMemoryError & Heap Dump:** `backend/03-jvm-memory-gc/demo-local-oom.sh`
+* **Databas Indexering & Låsköer:** `database/01-indexes-locks-and-plans/verify-database.sh`
 * **AWS SQS Poison Pill & DLQ:** `cloud-and-k8s/03-aws-event-driven/verify-dlq.sh`
 * **Terraform State Lock-konflikt:** `cloud-and-k8s/04-terraform-state-locks/test-state-lock.sh`
 

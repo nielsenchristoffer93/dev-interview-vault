@@ -50,3 +50,7 @@ volumes/
 .agents/
 skills-lock.json
 
+# Exports & AI Notebook dumps
+notebook-export/
+*-export/
+
