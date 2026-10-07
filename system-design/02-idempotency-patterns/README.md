@@ -91,15 +91,15 @@ GET "idempotency:order-999-uuid"
 
 ## 3. Koden & Verifiering
 
-* **The Flaw:** [FlawedPaymentEndpoint.java](file:///system-design/idempotency-patterns/FlawedPaymentEndpoint.java) – Drar pengar blint vid varje inkommande anrop; debiterar kunden dubbelt vid retries.
-* **The Fix:** [IdempotentPaymentHandler.java](file:///system-design/idempotency-patterns/IdempotentPaymentHandler.java) – Atomär kontroll via Redis `SET NX`, sparad respons och strikt dubbleringsskydd.
-* **Verification Test:** [IdempotencyVerificationTest.java](file:///system-design/idempotency-patterns/IdempotencyVerificationTest.java) – Bevisar att 5 parallella anrop med samma Idempotency-Key resulterar i exakt 1 debitering.
+* **The Flaw:** [FlawedPaymentEndpoint.java](file:///system-design/02-idempotency-patterns/FlawedPaymentEndpoint.java) – Drar pengar blint vid varje inkommande anrop; debiterar kunden dubbelt vid retries.
+* **The Fix:** [IdempotentPaymentHandler.java](file:///system-design/02-idempotency-patterns/IdempotentPaymentHandler.java) – Atomär kontroll via Redis `SET NX`, sparad respons och strikt dubbleringsskydd.
+* **Verification Test:** [IdempotencyVerificationTest.java](file:///system-design/02-idempotency-patterns/IdempotencyVerificationTest.java) – Bevisar att 5 parallella anrop med samma Idempotency-Key resulterar i exakt 1 debitering.
 
 ---
 
 ## 4. Så här kör du testerna
 
 ```bash
-cd system-design/idempotency-patterns
+cd system-design/02-idempotency-patterns
 mvn test
 ```

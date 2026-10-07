@@ -1,0 +1,82 @@
+# FLAWED: Default-Allow Kubernetes setup
+# Ingen NetworkPolicy applicerad = alla pods kan prata med alla pods och namespaces!
+# En komprometterad frontend-pod kan utföra Lateral Movement direkt till PostgreSQL.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: payments-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-frontend
+  namespace: payments-system
+  labels:
+    app: payment-frontend
+    tier: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: payment-frontend
+  template:
+    metadata:
+      labels:
+        app: payment-frontend
+        tier: frontend
+    spec:
+      containers:
+        - name: web
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-backend
+  namespace: payments-system
+  labels:
+    app: payment-backend
+    tier: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: payment-backend
+  template:
+    metadata:
+      labels:
+        app: payment-backend
+        tier: backend
+    spec:
+      containers:
+        - name: api
+          image: curlimages/curl
+          ports:
+            - containerPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-db
+  namespace: payments-system
+  labels:
+    app: payment-db
+    tier: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-db
+  template:
+    metadata:
+      labels:
+        app: payment-db
+        tier: database
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432

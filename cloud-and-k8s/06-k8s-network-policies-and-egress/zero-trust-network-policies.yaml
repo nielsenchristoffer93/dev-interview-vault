@@ -1,0 +1,136 @@
+# ZERO-TRUST KUBERNETES NETWORK POLICIES
+# Requires a CNI with NetworkPolicy enforcement (Cilium or Calico).
+
+# 1. DEFAULT-DENY-ALL (Isolera hela namespacet)
+# Stänger all Ingress och Egress för samtliga poddar. Ingen trafik tillåts utan explicit regel.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: payments-system
+spec:
+  podSelector: {} # Matchar alla poddar i payments-system
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# 2. ALLOW-DNS-EGRESS (CoreDNS Port 53)
+# Avgörande för att undvika "UnknownHostException" vid DNS-uppslagningar av interna Services.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: payments-system
+spec:
+  podSelector: {} # Gäller alla poddar som behöver DNS
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# 3. ALLOW-FRONTEND (Ingress från Gateway/Ingress-Controller + Egress till Backend)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-policy
+  namespace: payments-system
+spec:
+  podSelector:
+    matchLabels:
+      app: payment-frontend
+      tier: frontend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Tillåt inkommande trafik på HTTP port 80 från ingress-controller / edge
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 80
+  egress:
+    # Tillåt utgående anrop enbart till payment-backend på port 8080
+    - to:
+        - podSelector:
+            matchLabels:
+              app: payment-backend
+              tier: backend
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# 4. ALLOW-BACKEND (Ingress enbart från Frontend + Egress enbart till Database)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-policy
+  namespace: payments-system
+spec:
+  podSelector:
+    matchLabels:
+      app: payment-backend
+      tier: backend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Enbart Frontend-podden får anropa Backend
+    - from:
+        - podSelector:
+            matchLabels:
+              app: payment-frontend
+              tier: frontend
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # Backend får enbart ansluta till Postgres-databasen på port 5432
+    - to:
+        - podSelector:
+            matchLabels:
+              app: payment-db
+              tier: database
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# 5. ALLOW-DATABASE (Ingress enbart från Backend + Ingen Egress tillåten!)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: database-policy
+  namespace: payments-system
+spec:
+  podSelector:
+    matchLabels:
+      app: payment-db
+      tier: database
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Enbart Backend får ansluta till DB. Om Frontend komprometteras blockeras Lateral Movement direkt!
+    - from:
+        - podSelector:
+            matchLabels:
+              app: payment-backend
+              tier: backend
+      ports:
+        - protocol: TCP
+          port: 5432
+  # Notera: Inga egress-regler = Egress förblir 100% blockerat.
+  # PostgreSQL kan varken anropa internet, exfiltrera data eller kontakta andra poddar.

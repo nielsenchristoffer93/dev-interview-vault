@@ -117,3 +117,27 @@ Eller så kraschar processen utan att skicka en ACK/NACK.
 | **Flödeskontroll (Backpressure)** | Kräver explicit `channel.basicQos(prefetch_count)` | Inbyggt via Pull-modellen (`consumer.poll(max.poll.records)`) |
 | **Felhantering (Poison Pill)** | `NACK(requeue=false)` -> Dead-Letter Exchange (DLX) | `ErrorHandlingDeserializer` -> Dead Letter Topic (DLT) |
 | **Livscykel & Replay** | Raderas vid `ACK` (inget replay-stöd) | Raderas efter retention-tid (kan spelas upp igen via ny offset) |
+
+---
+
+## 🛠️ Koden & Verifiering
+
+* **The Flaw:** [FlawedBrokerPatterns.java](file:///system-design/05-rabbitmq-vs-kafka/FlawedBrokerPatterns.java)
+  * Out-of-order exekvering vid Competing Consumers på samma entitet.
+  * Oändlig redelivery loop vid poison pill med `requeue=true`.
+* **The Fix:** [ResilientBrokerPatterns.java](file:///system-design/05-rabbitmq-vs-kafka/ResilientBrokerPatterns.java)
+  * Partition Key Hashing garanterar sekventiell ordning per entitet.
+  * Dead-Letter Exchange (DLX) routing med max retry count och `requeue=false`.
+* **Verification Test:** [BrokerPatternsVerificationTest.java](file:///system-design/05-rabbitmq-vs-kafka/BrokerPatternsVerificationTest.java)
+  * Bevisar att parallel workers kastar om ordningen på skapande och avbokning.
+  * Bevisar att partition ordering bevarar skapande -> avbokning.
+  * Bevisar att giftpiller isoleras till DLQ utan att blockera kön.
+
+---
+
+## 🧪 Så här kör du testerna
+
+```bash
+cd system-design/05-rabbitmq-vs-kafka
+mvn test
+```

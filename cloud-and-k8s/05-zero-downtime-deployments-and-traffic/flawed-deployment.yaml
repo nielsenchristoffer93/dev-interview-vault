@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service-flawed
+  labels:
+    app: order-service
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # FLAW 1: 50% capacity dropped immediately, overloading remaining pod
+      maxUnavailable: 50%
+      maxSurge: 0
+  selector:
+    matchLabels:
+      app: order-service
+  template:
+    metadata:
+      labels:
+        app: order-service
+    spec:
+      # FLAW 2: Standard 30s timeout without preStop leads to SIGTERM arriving
+      # while kube-proxy iptables still route traffic to this dying pod!
+      terminationGracePeriodSeconds: 10
+      containers:
+      - name: order-service
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        # FLAW 3: No preStop hook! Container closes listening socket instantly upon SIGTERM.
+        resources:
+          limits:
+            cpu: "200m"
+            memory: "128Mi"
+          requests:
+            cpu: "100m"
+            memory: "64Mi"

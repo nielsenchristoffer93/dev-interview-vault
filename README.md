@@ -28,6 +28,8 @@ Varje labbmodul är strikt isolerad och byggd kring samma trestegsmönster:
 | [04-jpa-performance](file:///backend/04-jpa-performance/README.md) | N+1 queries, EntityGraph, Locking & Batching | N+1 Problem, `JOIN FETCH`, `@EntityGraph`, Cartesian Product Problem, `default_batch_fetch_size`, Lost Updates, Optimistic (`@Version`) vs Pessimistic Locking (`SELECT FOR UPDATE`) |
 | [05-maven-dependency-tree](file:///backend/05-maven-dependency-tree/README.md) | Jar Hell, transitiva beroenden & Enforcer | Nearest-Definition-Wins, `NoSuchMethodError`, Classpath Shadowing, `<dependencyManagement>`, Bill of Materials (BOM), `<exclusions>`, `maven-enforcer-plugin` |
 | [06-testing-pyramid](file:///backend/06-testing-pyramid/README.md) | Mockito vs `@WebMvcTest` vs Testcontainers | Testing Pyramid, H2-illusionen, Production Parity, Testcontainers (PostgreSQL), ApplicationContext Cache Pollution, `@DirtiesContext`, Mockito vs WebMvc Slices |
+| [07-observability-distributed-tracing](file:///backend/07-observability-distributed-tracing/README.md) | OpenTelemetry, W3C Tracing & Prometheus | W3C Trace Context (`traceparent`), Distributed Waterfall, RED vs USE Method, High Cardinality OOM Trap, MDC ThreadLocal Leaks, TaskDecorator, Scoped Values |
+| [08-contract-testing-and-versioning](file:///backend/08-contract-testing-and-versioning/README.md) | Consumer-Driven Contracts (Pact) & API-versionering | Consumer-Driven Contract Testing, Provider Verification, Pact Broker & `can-i-deploy`, Tolerant Reader Pattern, Breaking Change Detection, API Versioning Strategies, Deprecation Window & Sunset Header |
 
 ---
 
@@ -39,6 +41,7 @@ Varje labbmodul är strikt isolerad och byggd kring samma trestegsmönster:
 | [03-auth-session-flow](file:///frontend/03-auth-session-flow/README.md) | BFF-mönster, Cookie-flaggor & XSS vs CSRF | XSS Exfiltration i `localStorage`, Supply Chain Attacks, `HttpOnly` + `Secure` + `SameSite=Lax`, Backend-for-Frontend (BFF), Refresh Token Rotation |
 | [04-optimistic-updates](file:///frontend/04-optimistic-updates/README.md) | TanStack Query mutation & rollback | Perceived Latency, Spinner UX Elimination, Ghost Updates, Snapshot Rollback (`context.previousData`), `cancelQueries`, `onSettled` Invalidation |
 | [05-typescript-type-safety](file:///frontend/05-typescript-type-safety/README.md) | Type Erasure, Zod Schemas & Branded Types | Type Erasure, Type Assertion (`as`), Parse Don't Validate, Zod Schema, Exhaustiveness Check (`never`), `assertNever`, Branded Types (Nominal Typing) |
+| [06-core-web-vitals-and-error-boundaries](file:///frontend/06-core-web-vitals-and-error-boundaries/README.md) | Core Web Vitals (LCP, INP, CLS) & Error Boundaries | Error Boundary, `getDerivedStateFromError`, `componentDidCatch`, White Screen of Death (WSoD), CLS, Aspect-Ratio Reservation, INP, Long Tasks, `startTransition`, Time Slicing |
 
 ---
 
@@ -46,26 +49,39 @@ Varje labbmodul är strikt isolerad och byggd kring samma trestegsmönster:
 | Modul | Fokusområde | Nyckelbegrepp (Keyword Bingo) |
 | :--- | :--- | :--- |
 | [01-indexes-locks-and-plans](file:///database/01-indexes-locks-and-plans/README.md) | B-Tree Index, DDL Locks & Transaction Isolation | B-Tree Index, Leftmost Prefix Rule, Seq Scan vs Index Scan, Range Trap, `ACCESS EXCLUSIVE LOCK`, Lock Queue, `lock_timeout`, Write Skew, `SELECT FOR UPDATE`, SSI |
+| [02-zero-downtime-migrations-and-replication](file:///database/02-zero-downtime-migrations-and-replication/README.md) | Expand/Contract Migrations & Read Replicas | Expand & Contract Pattern, Dual-Write, Batched Backfill, Replication Lag, Read-Your-Own-Writes, Sticky Primary Window, Keyset vs Offset Pagination |
 
 ---
 
-### ☁️ 4. Cloud & Kubernetes
+### 🛡️ 4. Security & AppSec (Fullstack)
+| Modul | Fokusområde | Nyckelbegrepp (Keyword Bingo) |
+| :--- | :--- | :--- |
+| [01-web-security-cors-csrf-xss](file:///security/01-web-security-cors-csrf-xss/README.md) | CORS, CSP, CSRF, Token Storage & SSRF | Same-Origin Policy (SOP), Preflight `OPTIONS`, Wildcard with Credentials, In-Memory Token + HttpOnly Refresh, Content Security Policy (CSP Nonces), AWS IMDSv2 SSRF |
+| [02-auth-tokens-m2m-and-rotation](file:///security/02-auth-tokens-m2m-and-rotation/README.md) | M2M (Machine-to-Machine) & Refresh Token Rotation | OAuth2 Client Credentials Grant, M2M Scopes, Refresh Token Rotation (RTR), Token Reuse Detection, Token Family Invalidation, Asymmetric Signing (RS256 & JWKS), Key ID (`kid`) |
+
+---
+
+### ☁️ 5. Cloud & Kubernetes
 | Modul | Fokusområde | Nyckelbegrepp (Keyword Bingo) |
 | :--- | :--- | :--- |
 | [01-k8s-pod-to-ingress](file:///cloud-and-k8s/01-k8s-pod-to-ingress/README.md) | Ingress -> Service -> Pod port forwarding | TargetPort vs Port, Selector Mismatch, `Endpoints: <none>`, 502 Bad Gateway vs 503 Service Unavailable, Named Ports, ClusterIP routing |
 | [02-k8s-probes-actuator](file:///cloud-and-k8s/02-k8s-probes-actuator/README.md) | Liveness, Readiness & Management Port | Kubernetes Death Spiral, Cascading Restart, Liveness vs Readiness vs Startup Probes, Port 8081 Isolation, Graceful Shutdown (`preStop` hook) |
 | [03-aws-event-driven](file:///cloud-and-k8s/03-aws-event-driven/README.md) | EventBridge -> SQS -> Dead-Letter Queue | Poison Pill, Head-of-Line Blocking, Dead-Letter Queue (DLQ), Redrive Policy (`maxReceiveCount`), Visibility Timeout, Fan-out, At-Least-Once Delivery |
 | [04-terraform-state-locks](file:///cloud-and-k8s/04-terraform-state-locks/README.md) | S3 Remote Backend & DynamoDB Locking | State File Corruption, Orphaned Resources, DynamoDB `LockID`, `Error acquiring state lock`, `terraform force-unlock`, S3 SSE-KMS & Versioning |
+| [05-zero-downtime-deployments-and-traffic](file:///cloud-and-k8s/05-zero-downtime-deployments-and-traffic/README.md) | Zero-Downtime Deployments & Traffic Draining | 502/504 Drop Window, RollingUpdate (`maxSurge` & `maxUnavailable`), Readiness Probe Barrier, `preStop` Sleep Hook, Graceful Connection Draining, SIGTERM vs SIGKILL |
+| [06-k8s-network-policies-and-egress](file:///cloud-and-k8s/06-k8s-network-policies-and-egress/README.md) | NetworkPolicies & Egress Security (Zero-Trust K8s) | Default-Allow Trap, NetworkPolicy, Default-Deny Pattern, Lateral Movement, Micro-segmentation, CoreDNS Port 53 Egress Trap, CNI Enforcement (Cilium/Calico vs Flannel) |
 
 ---
 
-### 📐 5. System Design
+### 📐 6. System Design (Distributed Systems & Messaging)
 | Modul | Fokusområde | Nyckelbegrepp (Keyword Bingo) |
 | :--- | :--- | :--- |
-| [idempotency-patterns](file:///system-design/idempotency-patterns/README.md) | Idempotens & distribuerad låsning | Idempotency Key (UUID), Double-Charging, At-Least-Once Delivery, Redis `SET NX EX`, Result Caching, Distributed Locks, Fencing Tokens |
-| [outbox-pattern](file:///system-design/outbox-pattern/README.md) | Transactional Outbox & Debezium CDC | The Dual-Write Problem, 2PC Anti-Pattern, Local ACID Atomicity, Change Data Capture (CDC), PostgreSQL WAL, Debezium, `SKIP LOCKED` Worker |
-| [rate-limiting](file:///system-design/rate-limiting/README.md) | Token Bucket vs Leaky Bucket | Boundary Burst Vulnerability, Fixed Window Counter, Token Bucket (Burstiness), Leaky Bucket (Traffic Shaping), Sliding Window, Redis Lua Script, 429 Too Many Requests |
-| [rabbitmq-vs-kafka](file:///system-design/rabbitmq-vs-kafka/README.md) | RabbitMQ vs Kafka & Message Brokers | Competing Consumers, Out-of-Order Execution, Partition Key Hashing, Prefetch Count (`basic.qos`), Consumer Starvation, Poison Pill, Dead-Letter Exchange (DLX), DLT |
+| [01-caching-thundering-herd](file:///system-design/01-caching-thundering-herd/README.md) | Cache Stampede, Eviction & Stale-While-Revalidate | Thundering Herd, Single-Flight / Mutex Locking, Cache-Aside Eviction, After-Commit Invalidation, `s-maxage`, `stale-while-revalidate`, ETag Conditional Requests |
+| [02-idempotency-patterns](file:///system-design/02-idempotency-patterns/README.md) | Idempotens & distribuerad låsning | Idempotency Key (UUID), Double-Charging, At-Least-Once Delivery, Redis `SET NX EX`, Result Caching, Distributed Locks, Fencing Tokens |
+| [03-outbox-pattern](file:///system-design/03-outbox-pattern/README.md) | Transactional Outbox & Debezium CDC | The Dual-Write Problem, 2PC Anti-Pattern, Local ACID Atomicity, Change Data Capture (CDC), PostgreSQL WAL, Debezium, `SKIP LOCKED` Worker |
+| [04-rate-limiting](file:///system-design/04-rate-limiting/README.md) | Token Bucket vs Leaky Bucket | Boundary Burst Vulnerability, Fixed Window Counter, Token Bucket (Burstiness), Leaky Bucket (Traffic Shaping), Sliding Window, Redis Lua Script, 429 Too Many Requests |
+| [05-rabbitmq-vs-kafka](file:///system-design/05-rabbitmq-vs-kafka/README.md) | RabbitMQ vs Kafka & Message Brokers | Competing Consumers, Out-of-Order Execution, Partition Key Hashing, Prefetch Count (`basic.qos`), Consumer Starvation, Poison Pill, Dead-Letter Exchange (DLX), DLT |
+| [06-websockets-vs-sse](file:///system-design/06-websockets-vs-sse/README.md) | WebSockets vs SSE & Real-Time Clusters | Simplex vs Full-Duplex, `Last-Event-ID`, HTTP/2 Multiplexing, Redis Pub/Sub Backplane, Fan-out, Zombie Connections, ALB 60s Idle Timeout, Heartbeats |
 
 ---
 
@@ -118,7 +134,7 @@ För att köra laborationerna i `cloud-and-k8s/` samt OOM-simuleringen i `backen
 ## ☕ Köra Backend & Spring Boot-applikationer
 
 ### 1. Köra alla tester över hela backend (Aggregator)
-Kör alla 6 moduler och deras automatiserade verifieringstester i ett enda svep:
+Kör alla moduler och deras automatiserade verifieringstester i ett enda svep:
 ```bash
 cd backend
 mvn test
@@ -128,6 +144,10 @@ mvn test
 ```bash
 # Exempel: Testa alla 8 concurrency-koncept (10 automatiserade tester):
 cd backend/02-concurrency-threads
+mvn test
+
+# Exempel: Testa Consumer-Driven Contract Testing (Pact / Breaking Changes):
+cd backend/08-contract-testing-and-versioning
 mvn test
 
 # Exempel: Testa JPA Performance (N+1 queries & optimistisk låsning):
@@ -159,7 +179,7 @@ Två moduler är fullt körbara Spring Boot 3-applikationer redo för HTTP-trafi
 
 ## ⚛️ Köra Frontend & Vitest-tester
 
-Alla 5 frontend-moduler körs med Vitest och har fullständig TypeScript-stöd:
+Alla 6 frontend-moduler körs med Vitest och har fullständig TypeScript-stöd:
 
 ```bash
 cd frontend
@@ -167,11 +187,35 @@ cd frontend
 # Installera beroenden
 npm install
 
-# Kör alla 15 verifieringstester över alla 5 moduler
+# Kör alla 20 verifieringstester över alla 6 moduler
 npm test
 
 # Validera TypeScript strikt kompilering
 npm run typecheck
+```
+
+---
+
+## 🛡️ Köra Security & Token-tester
+
+```bash
+# Verifiera Refresh Token Rotation (RTR), M2M scopes & asymmetrisk signering:
+cd security/02-auth-tokens-m2m-and-rotation
+mvn test
+```
+
+---
+
+## ☁️ Köra Cloud & K8s Verifieringsskript
+
+```bash
+# Verifiera Zero-Downtime RollingUpdate & Connection Draining:
+cd cloud-and-k8s/05-zero-downtime-deployments-and-traffic
+./verify-zero-downtime.sh
+
+# Verifiera Zero-Trust NetworkPolicies & CoreDNS Egress:
+cd cloud-and-k8s/06-k8s-network-policies-and-egress
+./verify-network-policies.sh
 ```
 
 ---
@@ -194,7 +238,7 @@ mvn test
 
 ```bash
 # Verifiera RabbitMQ vs Kafka (Competing consumers, Prefetch starvation, DLQ):
-cd system-design/rabbitmq-vs-kafka
+cd system-design/05-rabbitmq-vs-kafka
 mvn test
 ```
 

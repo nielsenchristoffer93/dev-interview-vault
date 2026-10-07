@@ -114,15 +114,15 @@ ab -n 150 -c 10 http://localhost:8080/api/resource
 
 ## 3. Koden & Verifiering
 
-* **The Flaw:** [FlawedFixedWindowLimiter.java](file:///system-design/rate-limiting/FlawedFixedWindowLimiter.java) – Fast fönster som tillåter dubbel trafikspik vid fönsterskiftet.
-* **The Fix:** [TokenBucketRateLimiter.java](file:///system-design/rate-limiting/TokenBucketRateLimiter.java) – Matematisk Token Bucket som hanterar bursts och kontinuerlig påfyllning baserat på tidsskillnad.
-* **Verification Test:** [RateLimiterVerificationTest.java](file:///system-design/rate-limiting/RateLimiterVerificationTest.java) – Bevisar att bursts upp till kapacitet tillåts men att överskridande anrop nekas med 429.
+* **The Flaw:** [FlawedFixedWindowLimiter.java](file:///system-design/04-rate-limiting/FlawedFixedWindowLimiter.java) – Fast fönster som tillåter dubbel trafikspik vid fönsterskiftet.
+* **The Fix:** [TokenBucketRateLimiter.java](file:///system-design/04-rate-limiting/TokenBucketRateLimiter.java) – Matematisk Token Bucket som hanterar bursts och kontinuerlig påfyllning baserat på tidsskillnad.
+* **Verification Test:** [RateLimiterVerificationTest.java](file:///system-design/04-rate-limiting/RateLimiterVerificationTest.java) – Bevisar att bursts upp till kapacitet tillåts men att överskridande anrop nekas med 429.
 
 ---
 
 ## 4. Så här kör du testerna
 
 ```bash
-cd system-design/rate-limiting
+cd system-design/04-rate-limiting
 mvn test
 ```

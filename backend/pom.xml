@@ -18,6 +18,8 @@
         <module>04-jpa-performance</module>
         <module>05-maven-dependency-tree</module>
         <module>06-testing-pyramid</module>
+        <module>07-observability-distributed-tracing</module>
+        <module>08-contract-testing-and-versioning</module>
     </modules>
 
     <properties>

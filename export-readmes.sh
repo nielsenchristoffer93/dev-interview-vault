@@ -20,7 +20,7 @@ echo " Dev Interview Vault - Export READMEs for NotebookLM/AI"
 echo "=========================================================="
 echo "Target directory: $RESOLVED_TARGET"
 
-CATEGORIES=("backend" "cloud-and-k8s" "database" "frontend" "system-design")
+CATEGORIES=("backend" "cloud-and-k8s" "database" "frontend" "security" "system-design")
 CONSOLIDATED_FILE="$RESOLVED_TARGET/_ALL_MODULES_CONSOLIDATED.md"
 
 cat << 'EOF' > "$CONSOLIDATED_FILE"

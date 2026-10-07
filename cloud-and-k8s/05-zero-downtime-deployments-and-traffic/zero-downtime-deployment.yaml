@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service-resilient
+  labels:
+    app: order-service
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # FIX 1: Zero unavailability! New pod must be Ready before any old pod is terminated.
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: order-service
+  template:
+    metadata:
+      labels:
+        app: order-service
+    spec:
+      # FIX 2: Give enough time for preStop sleep (15s) + application graceful drain (30s)
+      terminationGracePeriodSeconds: 60
+      containers:
+      - name: order-service
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        lifecycle:
+          preStop:
+            exec:
+              # FIX 3: Wait 15s before sending SIGTERM!
+              # Gives kube-proxy and Ingress controllers ample time to remove the pod IP
+              # from iptables / IPVS routing tables before app stops accepting connections.
+              command: ["/bin/sh", "-c", "sleep 15"]
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: "200m"
+            memory: "128Mi"
+          requests:
+            cpu: "100m"
+            memory: "64Mi"
+---
+# FIX 4: PodDisruptionBudget protects service capacity during node drains and maintenance
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: order-service-pdb
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: order-service
