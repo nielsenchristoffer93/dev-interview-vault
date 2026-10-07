@@ -119,13 +119,13 @@ check_and_free_port() {
 # ------------------------------------------------------------------------------
 # 1. Systemverktyg: curl & jq
 # ------------------------------------------------------------------------------
-echo -e "\n${BOLD}[1/7] Kontrollerar basverktyg (curl, jq)...${NC}"
-if ! check_cmd curl || ! check_cmd jq; then
-    echo -e "${YELLOW}⚠️ Installerar curl och jq...${NC}"
-    sudo apt-get update -qq && sudo apt-get install -y -qq curl jq
+echo -e "\n${BOLD}[1/7] Kontrollerar basverktyg (curl, jq, util-linux-extra)...${NC}"
+if ! check_cmd curl || ! check_cmd jq || ! check_cmd newgrp; then
+    echo -e "${YELLOW}⚠️ Installerar curl, jq och util-linux-extra...${NC}"
+    sudo apt-get update -qq && sudo apt-get install -y -qq curl jq util-linux-extra || true
     echo -e "${GREEN}✅ Basverktyg installerade.${NC}"
 else
-    echo -e "${GREEN}✅ curl och jq är redan installerade.${NC}"
+    echo -e "${GREEN}✅ Basverktyg är redan installerade.${NC}"
 fi
 
 # ------------------------------------------------------------------------------
@@ -284,7 +284,7 @@ echo -e "  📊 Grafana:        http://localhost:3000 (admin / admin)"
 echo -e "  ☸️ Kubernetes:     kubectl & minikube redo"
 echo -e "======================================================================"
 echo -e "Nästa steg:"
-echo -e "  • Kör alla backend-tester:  ${CYAN}cd backend && mvn test${NC}"
+echo -e "  • Kör alla backend-tester:  ${CYAN}
 echo -e "  • Starta resilience-appen:  ${CYAN}cd backend/01-spring-resilience && mvn spring-boot:run${NC}"
 echo -e "  • Starta Minikube vid behov:${CYAN}minikube start --driver=docker && minikube addons enable ingress${NC}"
 echo -e "======================================================================\n"
