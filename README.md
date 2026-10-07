@@ -79,7 +79,24 @@ docker compose -f compose/docker-compose.monitoring.yml up -d
 * **Prometheus:** `http://localhost:9090`
 * **Grafana:** `http://localhost:3000` (`admin` / `admin`)
 
+### 3. Lokalt Kubernetes-kluster (Valfritt – för K8s-labs)
+För att köra laborationerna i `cloud-and-k8s/` samt OOM-simuleringen i `backend/03-jvm-memory-gc` kan du använda ett lokalt Kubernetes-kluster:
+
+* **Alternativ A: Minikube (Rekommenderat för labb)**
+  ```bash
+  # Starta kluster med Ingress-stöd (krävs för 01-k8s-pod-to-ingress):
+  minikube start --driver=docker
+  minikube addons enable ingress
+  ```
+* **Alternativ B: Kind (Kubernetes in Docker – startar på sekunder)**
+  ```bash
+  kind create cluster --name dev-vault
+  ```
+* **Alternativ C: Docker Desktop Kubernetes**
+  * Gå till Docker Desktop **Settings** > **Kubernetes** > Kryssa i **Enable Kubernetes**.
+
 ---
+
 
 ## ☕ Köra Backend & Spring Boot-applikationer (via WSL)
 
