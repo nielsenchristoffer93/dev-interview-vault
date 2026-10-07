@@ -17,6 +17,10 @@ Om en utvecklare sparar föränderligt tillstånd (t.ex. `private int orderCount
 * **Java Memory Model (JMM) & Happens-Before:** Reglerna som definierar när en tråds skrivning till minnet blir synlig för en annan tråd.
 * **Compare-And-Swap (CAS):** Hårdvaruinstruktion (lock-free) som ligger till grund för `AtomicInteger`, `AtomicLong` och `AtomicReference`.
 * **Thread Confinement / Stateless Services:** Den gyllene regeln i modern backend-design: Håll beans 100% tillståndslösa eller skicka tillstånd som metodargument (`Thread-local` / Stack-allokerat).
+* **Deadlock (Dödläge):** När två trådar blockerar varandra för evigt genom cykliskt låsberoende (Circular Wait).
+* **Check-then-Act Race Condition:** När separata atomära anrop (`containsKey` + `put`) utförs icke-atomärt och leder till Cache Stampede.
+* **ThreadLocal Leak:** När data inte rensas i en trådpool och läcker över till nästa request på samma worker-tråd.
+* **Carrier Thread Pinning:** När en Virtual Thread (Java 21) blockerar i ett `synchronized`-block och låser den underliggande OS-tråden.
 
 ---
 
@@ -50,28 +54,47 @@ curl http://localhost:8080/api/orders/safe/count
 # Utfall: Räknaren visar exakt 1000!
 ```
 
+### C. Inspektera och hitta Deadlocks med `jcmd`
+Om trådar har hängt sig tar du en tråddump:
+```bash
+jcmd <PID> Thread.print | grep -A 20 "Found one Java-level deadlock"
+```
+
 ---
 
-## 5. Koden & Verifiering
+## 5. Koden & Verifiering (5 Concurrency-labbmodeller)
 
-* **The Flaw:** [UnsafeOrderService.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/UnsafeOrderService.java) – Använder primitiv `int` i singleton-läge; tappar räkningar under parallell last.
-* **The Fix:** [SafeOrderService.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/SafeOrderService.java) – Använder `AtomicLong` med lock-free CAS-principer.
-* **REST Controller:** [OrderController.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/OrderController.java) – Exponerar HTTP-endpoints för benchmarking.
-* **Spring Boot Main:** [ConcurrencyApplication.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/ConcurrencyApplication.java) – Startar applikationen på port 8080.
-* **Verification Test:** [ConcurrencyVerificationTest.java](file:///backend/02-concurrency-threads/src/test/java/com/vault/concurrency/ConcurrencyVerificationTest.java) – Kör 50 parallella trådar med `CountDownLatch` och demonstrerar diskrepansen direkt i JVM:en.
+* **Topic 0 (Lost Updates & CAS):**
+  * The Flaw: [UnsafeOrderService.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/UnsafeOrderService.java) – Primitiv `int` i singleton-läge; tappar räkningar.
+  * The Fix: [SafeOrderService.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/SafeOrderService.java) – Lock-free `AtomicLong` med CAS.
+* **Topic 1 (Deadlocks & Lock Ordering):**
+  * Lab & Fix: [DeadlockLab.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/DeadlockLab.java) – Inverterade monitorlås vs Global Lock Ordering och `ReentrantLock.tryLock()`.
+* **Topic 2 (ConcurrentHashMap Check-then-act):**
+  * Lab & Fix: [ConcurrentHashMapLab.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/ConcurrentHashMapLab.java) – `containsKey` + `put` (Cache Stampede) vs atomär `computeIfAbsent()`.
+* **Topic 3 (ThreadLocal Context Leaks):**
+  * Lab & Fix: [ThreadLocalLab.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/ThreadLocalLab.java) – Förorening av worker threads i trådpool vs `try-with-resources / finally { remove(); }`.
+* **Topic 4 (Virtual Thread Pinning):**
+  * Lab & Fix: [VirtualThreadPinningLab.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/VirtualThreadPinningLab.java) – `synchronized` (Carrier Pinning) vs `ReentrantLock`.
+* **Spring Boot REST App:**
+  * [OrderController.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/OrderController.java) & [ConcurrencyApplication.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/ConcurrencyApplication.java).
+* **Verification Test:**
+  * [ConcurrencyVerificationTest.java](file:///backend/02-concurrency-threads/src/test/java/com/vault/concurrency/ConcurrencyVerificationTest.java) – Full testsvit med 6 automatiserade enhetstester.
 
 ---
 
 ## 6. Så här kör du testerna och live-demonstrationen
 
 ### A. Kör enhetstesterna i JVM:en (Inget behov av server)
-Testet körs omedelbart med Maven och demonstrerar race condition med trådar i minnet:
+Kör hela sviten (alla 5 ämnen) med Maven:
 ```bash
 cd backend/02-concurrency-threads
 mvn clean test
 ```
 * **Vad testet bevisar:**  
-  Utskriften visar hur `UnsafeOrderService` tappar tusentals uppdateringar (t.ex. räknar 32 639 av 50 000), medan `SafeOrderService` träffar exakt 50 000.
+  * Visar att `UnsafeOrderService` tappar >17 000 updates under 50 000 anrop.
+  * Visar att `UnsafeCache` kör DB-anropet 20 gånger parallellt, medan `computeIfAbsent` kör det exakt 1 gång.
+  * Visar hur en efterföljande användare i en trådpool ärver föregående användares identitet om `remove()` glöms.
+  * Visar hur `tryLock` ger upp efter timeout istället för att fastna i deadlock.
 
 ---
 
@@ -86,10 +109,41 @@ Servern startar på `http://localhost:8080`.
 ---
 
 ### C. Kör det färdiga demoskriptet (`demo-race-condition.sh`)
-I en ny terminalkör du det interaktiva skriptet:
+I en separat terminal kör du det interaktiva skriptet:
 ```bash
 cd backend/02-concurrency-threads
 ./demo-race-condition.sh
 ```
-Skriptet skickar 1 000 samtidiga anrop mot `/unsafe` respektive `/safe` och skriver ut exakt hur många transaktioner som förlorades i det oskyddade läget kontra den atomära lösningen!
+
+---
+
+## 7. Senior Intervju-djupdykning: 4 Klassiska Concurrency-frågor
+
+### 1. Hur uppstår Deadlocks och hur förhindrar du dem?
+* **Orsak (Lock Ordering Inversion):** Tråd 1 tar Lås A och väntar på B. Tråd 2 tar Lås B och väntar på A. Båda fryser för evigt.
+* **Lösning A (Global Lock Ordering):** Sortera alltid låsen (t.ex. efter databas-ID eller `System.identityHashCode`). Båda trådarna tvingas då alltid ta A först och B därefter.
+* **Lösning B (`ReentrantLock.tryLock`):** Ange en timeout: `lock.tryLock(500, TimeUnit.MILLISECONDS)`. Om låset inte kan tas, släpp alla egna lås och backa undan.
+
+### 2. Varför skyddar inte `ConcurrentHashMap` mot alla race conditions?
+* `ConcurrentHashMap` garanterar enbart att enskilda metodanrop (`get`, `put`) är trådsäkra.
+* Om du skriver:
+  ```java
+  if (!map.containsKey(key)) {
+      map.put(key, expensiveDbCall(key)); // CHECK-THEN-ACT FÄLLA!
+  }
+  ```
+  kan 50 trådar se att nyckeln saknas och göra `expensiveDbCall` samtidigt (**Cache Stampede**).  
+  **Rätt lösning:** `map.computeIfAbsent(key, k -> expensiveDbCall(k))`, som låser på bucket-/nod-nivå och garanterar exakt 1 exekvering.
+
+### 3. Hur leder `ThreadLocal` till säkerhetshål och minnesläckor i Tomcat?
+* Tomcat återanvänder trådar från en trådpool.
+* Om du sätter `TenantContext.setCurrentTenant("kund-A")` och glömmer `remove()`, kommer nästa inkommande request från "kund-B" som tilldelas samma tråd att läsa "kund-A"s data!
+* Dessutom kan objekt som hålls av trådens interna tabell inte Garbage Collectas -> **Minnesläcka**.
+* **Regel:** Alltid använda `try ... finally { context.remove(); }` eller AutoCloseable try-with-resources.
+
+### 4. Vad är "Carrier Thread Pinning" i Java 21 Virtual Threads?
+* Virtual Threads körs ovanpå ett fåtal OS-trådar (*Carrier Threads*). Vid blockerande I/O (nätverk/databas) monteras de normalt av.
+* **Men:** Om tråden blockerar inuti ett **`synchronized`**-block blir den "pinned" vid sin carrier-tråd och blockerar hela OS-tråden.
+* **Lösning:** Använd **`ReentrantLock`** istället för `synchronized` i modern Java 21-kod.
+
 
