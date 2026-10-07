@@ -45,3 +45,8 @@ hs_err_pid*
 # Docker
 volumes/
 .docker/
+
+# Agent IDE files
+.agents/
+skills-lock.json
+

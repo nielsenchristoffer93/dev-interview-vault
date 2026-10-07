@@ -52,3 +52,61 @@ curl -s http://localhost:8081/actuator/metrics/resilience4j.circuitbreaker.failu
 * **The Flaw:** [UnprotectedPaymentClient.java](file:///backend/01-spring-resilience/src/main/java/com/vault/resilience/UnprotectedPaymentClient.java) – Anropar hängande tjänst utan timeouts, konsumerar trådar tills systemet kraschar.
 * **The Fix:** [ResilientPaymentClient.java](file:///backend/01-spring-resilience/src/main/java/com/vault/resilience/ResilientPaymentClient.java) – Konfigurerad med CircuitBreaker, TimeLimiter och Fallback.
 * **Verification Test:** [ResilienceVerificationTest.java](file:///backend/01-spring-resilience/src/test/java/com/vault/resilience/ResilienceVerificationTest.java) – Bevisar att kretsen öppnas vid fel och returnerar fallback omedelbart.
+
+---
+
+## 6. Så här kör du Spring Boot-applikationen & testerna (WSL / Linux)
+
+### A. Kör enhet- och integrationstesterna
+Från modulkatalogen i WSL:
+```bash
+cd backend/01-spring-resilience
+mvn clean test
+```
+Eller direkt från Windows PowerShell (via WSL):
+```powershell
+wsl bash -l -c "cd /mnt/c/Users/s103228/.repositories/dev-interview-vault/backend/01-spring-resilience && mvn test"
+```
+
+### B. Starta Spring Boot-servern lokalt
+Starta applikationen med Spring Boot Maven-pluginet:
+```bash
+cd backend/01-spring-resilience
+mvn spring-boot:run
+```
+Applikationen startar på:
+* **Kundtrafik HTTP:** `http://localhost:8080`
+* **Actuator & Prometheus:** `http://localhost:8081`
+
+### C. Testa endpoints & se Circuit Breaker agera i realtid
+Öppna en ny terminal eller kör curl:
+
+1. **Normalt lyckat betalningsanrop:**
+   ```bash
+   curl "http://localhost:8080/api/payment/safe?tx=ORD-100"
+   # Svar: SUCCESS: Payment ORD-100 processed
+   ```
+
+2. **Simulera fallerande nedströmstjänst (öppnar kretsbrytaren & fail-fast fallback):**
+   ```bash
+   # Gör 3 snabba anrop för att överskrida tröskeln
+   curl "http://localhost:8080/api/payment/fail-fast?tx=TX-1"
+   curl "http://localhost:8080/api/payment/fail-fast?tx=TX-2"
+   curl "http://localhost:8080/api/payment/fail-fast?tx=TX-3"
+   
+   # 4:e anropet: Kretsen är OPEN! Svarar direkt med fail-fast fallback
+   curl "http://localhost:8080/api/payment/fail-fast?tx=TX-4"
+   ```
+
+3. **Inspektera Actuator hälsotillstånd & Circuit Breaker status:**
+   ```bash
+   # Hälsostatus och probes
+   curl -s http://localhost:8081/actuator/health | jq .
+
+   # Circuit Breaker tillstånd (CLOSED / OPEN / HALF_OPEN)
+   curl -s http://localhost:8081/actuator/metrics/resilience4j.circuitbreaker.state | jq .
+
+   # Prometheus rådata
+   curl -s http://localhost:8081/actuator/prometheus | grep resilience4j
+   ```
+

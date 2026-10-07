@@ -77,7 +77,52 @@ docker compose -f compose/docker-compose.base.yml up -d
 docker compose -f compose/docker-compose.monitoring.yml up -d
 ```
 * **Prometheus:** `http://localhost:9090`
-* **Grafana:** `http://localhost:3000` (admin / admin)
+* **Grafana:** `http://localhost:3000` (`admin` / `admin`)
+
+---
+
+## ☕ Köra Backend & Spring Boot-applikationer (via WSL)
+
+Eftersom Java och Maven körs i WSL finns enkla instruktioner för att antingen köra interaktivt inifrån WSL eller direkt från PowerShell / Windows Terminal via `wsl`.
+
+### 1. Köra alla tester över hela backend (Aggregator)
+Kör alla 6 moduler (Resilience, Concurrency, JVM Memory, JPA, Maven, Testing Pyramid) i ett enda svep:
+```bash
+# Inifrån WSL:
+cd backend
+mvn test
+
+# Eller direkt från Windows PowerShell:
+wsl bash -l -c "cd /mnt/c/Users/s103228/.repositories/dev-interview-vault/backend && mvn test"
+```
+
+### 2. Köra tester för en specifik modul
+```bash
+# Exempel: Testa bara JPA Performance (N+1 queries & optimistic locking):
+cd backend/04-jpa-performance
+mvn test
+
+# Exempel: Testa bara Spring Resilience (Circuit breaker & Fallbacks):
+cd backend/01-spring-resilience
+mvn test
+```
+
+### 3. Starta en körande Spring Boot-applikation lokalt
+Modulen `backend/01-spring-resilience` är en fullt körbar Spring Boot 3-applikation:
+```bash
+# Starta servern:
+cd backend/01-spring-resilience
+mvn spring-boot:run
+
+# Eller från PowerShell:
+wsl bash -l -c "cd /mnt/c/Users/s103228/.repositories/dev-interview-vault/backend/01-spring-resilience && mvn spring-boot:run"
+```
+När applikationen är startad:
+* **HTTP API:** `http://localhost:8080/api/payment/safe?tx=ORD-1`
+* **Fail-Fast (trigga kretsbrytaren):** `http://localhost:8080/api/payment/fail-fast?tx=TX-1`
+* **Actuator Health & Probes:** `http://localhost:8081/actuator/health`
+* **Circuit Breaker State Metrik:** `http://localhost:8081/actuator/metrics/resilience4j.circuitbreaker.state`
+* **Prometheus Metriker:** `http://localhost:8081/actuator/prometheus`
 
 ---
 
@@ -87,3 +132,4 @@ docker compose -f compose/docker-compose.monitoring.yml up -d
 2. **Kör "The Flaw":** Se testet fallera eller granska varför felaktig kod/konfiguration smäller i produktion.
 3. **Läs "Keyword Bingo" & "Verklighets-svaret":** Öva på att svara högt på 45 sekunder med rätt termer.
 4. **Kör "The Fix":** Kör verifieringstestet och se att det blir grönt.
+

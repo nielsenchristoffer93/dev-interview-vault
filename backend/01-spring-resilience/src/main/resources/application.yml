@@ -1,0 +1,30 @@
+server:
+  port: 8080
+
+management:
+  server:
+    port: 8081 # Isolerad port för Actuator & Prometheus
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      paymentService:
+        slidingWindowSize: 5
+        minimumNumberOfCalls: 3
+        failureRateThreshold: 50.0
+        waitDurationInOpenState: 5000ms
+        permittedNumberOfCallsInHalfOpenState: 2
+  retry:
+    instances:
+      paymentServiceRetry:
+        maxAttempts: 2
+        waitDuration: 100ms
