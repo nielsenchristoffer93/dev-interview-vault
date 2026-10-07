@@ -13,7 +13,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <junit.version>5.10.2</junit.version>
         <mockito.version>5.11.0</mockito.version>
-        <assertj.version>3.25.3</assertj.version>
+        <assertj.version>3.27.7</assertj.version>
         <testcontainers.version>1.19.7</testcontainers.version>
         <surefire.version>3.2.5</surefire.version>
     </properties>
