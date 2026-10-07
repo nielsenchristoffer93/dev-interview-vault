@@ -1,5 +1,10 @@
 server:
   port: 8080
+  tomcat:
+    threads:
+      max: 5 # Lab-konfiguration: Låter oss återskapa Thread Starvation med endast 5 samtidiga anrop!
+      min-spare: 2
+    accept-count: 2
 
 management:
   server:

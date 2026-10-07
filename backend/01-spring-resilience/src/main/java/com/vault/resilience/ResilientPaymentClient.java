@@ -77,6 +77,42 @@ public class ResilientPaymentClient {
         }
     }
 
+    /**
+     * Timeout-skyddad variant:
+     * Klipper långsamma anrop efter angiven tid, frigör anropande tråd
+     * och registrerar timeout som fel i Circuit Breaker.
+     */
+    public String payWithTimeout(String transactionId, Duration timeout) {
+        Supplier<String> supplier = () -> {
+            java.util.concurrent.CompletableFuture<String> future = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                try {
+                    return remoteGateway.process(transactionId);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            });
+
+            try {
+                return future.get(timeout.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+            } catch (java.util.concurrent.TimeoutException e) {
+                future.cancel(true);
+                throw new RuntimeException("TIMEOUT: Externa anropet överskred " + timeout.toMillis() + "ms", e);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        };
+
+        Supplier<String> decorated = CircuitBreaker.decorateSupplier(circuitBreaker, supplier);
+
+        try {
+            return decorated.get();
+        } catch (CallNotPermittedException e) {
+            return fallback(transactionId, "CIRCUIT_OPEN: Nedströmstjänst offline");
+        } catch (Exception e) {
+            return fallback(transactionId, "TIMEOUT_FALLBACK: " + e.getMessage());
+        }
+    }
+
     public String fallback(String transactionId, String reason) {
         return "FALLBACK_QUEUED:" + transactionId + " (" + reason + ")";
     }

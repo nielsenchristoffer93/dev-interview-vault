@@ -123,35 +123,78 @@ wsl bash -l -c "cd /mnt/c/Users/s103228/.repositories/dev-interview-vault/backen
 
 ---
 
-## 7. Endpoint-anatomi: `/unsafe` vs `/fail-fast` vs `/safe` (The Flaw vs The Fix)
+---
 
-Modulen exponerar tre endpoints för att tydligt demonstrera skillnaden mellan en oskyddad applikation och en resilient mikrotjänst under intervjusituationer:
+## 7. Matris över alla 5 kombinationer, effekter och utfall
 
-| Egenskap | `/api/payment/unsafe` *(The Flaw)* | `/api/payment/fail-fast` *(The Fix - Circuit Breaker)* | `/api/payment/safe` *(The Fix - Normal)* |
-| :--- | :--- | :--- | :--- |
-| **Klient i koden** | [UnprotectedPaymentClient](file:///backend/01-spring-resilience/src/main/java/com/vault/resilience/UnprotectedPaymentClient.java) | [ResilientPaymentClient](file:///backend/01-spring-resilience/src/main/java/com/vault/resilience/ResilientPaymentClient.java) | [ResilientPaymentClient](file:///backend/01-spring-resilience/src/main/java/com/vault/resilience/ResilientPaymentClient.java) |
-| **Kretsbrytare** | ❌ **Ingen** | ✅ **Aktiv** (`paymentService`) | ✅ **Aktiv** (`paymentService`) |
-| **Beteende vid fel** | Kastar ohanterat `RuntimeException` direkt upp i Tomcat -> **HTTP 500** | Fångas av kretsbrytaren -> **Graceful Fallback** | – |
-| **Beteende vid hög last / hängande tjänst** | Varje anrop låser en Tomcat-worker-tråd tills timeout (**Thread Pool Starvation**) | När kretsen är `OPEN` nekas anrop på under 1 ms (**Fail-Fast**) | Hanteras normalt |
-| **HTTP-respons** | `500 Internal Server Error` med fel-stacktrace | `200 OK` (`FALLBACK_QUEUED: ...`) | `200 OK` (`SUCCESS: ...`) |
+I modulen kan du reproducera och demonstrera fem distinkta fel- och skyddsmönster:
 
-### Varför är detta en nyckelfråga på intervjuer?
-Tekniska intervjuare vill se att du förstår **Kaskadfel (Cascading Failures)**:
-> *"Om vår externa betalningsgateway hänger i 30 sekunder, vad händer med resten av vår applikation?"*
+| Endpoint | Typ | Skyddsmekanism | Responskod | Trådeffekt i Tomcat | Utfall & Slutsats |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`/api/payment/safe`** | Normal | Circuit Breaker (CLOSED) | `200 OK` | Frigörs inom ~10 ms | Normaldrift. Svar: `SUCCESS: Payment ORD-100 processed`. |
+| **`/api/payment/fail-fast`** | Transient fel | Circuit Breaker + Retry + Fallback | `200 OK` | Frigörs omedelbart (< 1 ms vid OPEN) | Öppnar kretsen vid 3 fel. Därefter *fail-fast* fallback utan nätverksanrop. |
+| **`/api/payment/unsafe`** | Snabbt fel *(The Flaw)* | ❌ Inget | `500 Error` | Frigörs snabbt men skräpar ner logg | Kraschar direkt med rå Java-stacktrace (`RuntimeException`). Ingen fallback. |
+| **`/api/payment/unsafe-hang`** | Hängande tjänst *(The Flaw)* | ❌ Inget | Hänger i 10s | 🔒 **Låser tråden i 10 sekunder!** | Vid 5 samtidiga anrop inträffar **Thread Pool Starvation**! Port 8080 fryser helt. |
+| **`/api/payment/safe-timeout`** | Hängande tjänst *(The Fix)* | ✅ TimeLimiter (1s) + Circuit Breaker | `200 OK` | Frigörs efter max 1000 ms | Klipper anropet efter 1s, sparar Tomcat-tråden och returnerar timeout-fallback. |
 
-1. **Utan skydd (`/unsafe`):**  
-   Om 200 användare försöker betala samtidigt låses alla 200 Tomcat-trådar (`http-nio-8080-exec-*`). Hela applikationen slutar svara på alla andra endpoints (även startsidan och `/actuator/health`). Kubernetes liveness probe misslyckas och startar om podden i en ond cirkel.
+---
+
+## 8. Så här testar du de olika utfallen manuellt & automatiserat
+
+### Test 1: Snabbt fel utan skydd (`/unsafe`) vs med skydd (`/fail-fast`)
+```bash
+# 1. Oskyddat: Ger 500 Internal Server Error med fel-stacktrace
+curl -i "http://localhost:8080/api/payment/unsafe?tx=RAW-1"
+
+# 2. Skyddat: Ger 200 OK med strukturerad fallback
+curl -i "http://localhost:8080/api/payment/fail-fast?tx=FAIL-1"
+```
+
+---
+
+### Test 2: Framkalla Thread Pool Starvation med 5 anrop (`/unsafe-hang`)
+I `application.yml` är Tomcats max-trådar satta till **5** (`server.tomcat.threads.max: 5`):
+
+1. **Skicka 5 samtidiga hängande anrop i bakgrunden:**
    ```bash
-   # Testa /unsafe: Ger 500 Internal Server Error
-   curl -i "http://localhost:8080/api/payment/unsafe?tx=RAW-1"
+   for i in {1..5}; do curl -s "http://localhost:8080/api/payment/unsafe-hang?tx=HANG-${i}" & done
+   ```
+2. **Försök genast göra ett 6:e anrop på port 8080 (Kundtrafik):**
+   ```bash
+   curl -i --max-time 3 "http://localhost:8080/api/payment/safe?tx=TEST-6"
+   # UTFALL: TIMEOUT! Alla Tomcats 5 worker-trådar är låsta i vänteläge.
+   ```
+3. **Anropa Actuator på port 8081 (Separat Management Port):**
+   ```bash
+   curl -i "http://localhost:8081/actuator/health"
+   # UTFALL: SVARAR DIREKT (200 UP)!
+   ```
+   > **Intervju-poäng:** Detta bevisar varför Actuator *måste* ligga på en separat management-port (`8081`). Hade Actuator legat på port 8080 hade Kubernetes Liveness Probe timeat ut och startat om podden i en ond **Death Spiral**.
+
+---
+
+### Test 3: Lösningen på Thread Starvation – Timeout-skydd (`/safe-timeout`)
+```bash
+# Den underliggande tjänsten sover i 10 sekunder, men TimeLimiter klipper efter 1000 ms:
+curl -i "http://localhost:8080/api/payment/safe-timeout?tx=PROT-1"
+# UTFALL: Svarar efter exakt 1 sekund med FALLBACK_QUEUED och frigör tråden!
+```
+
+---
+
+### 🤖 Färdiga automatiserade demonstrationsskript
+
+Två kompletta skript finns färdiga att köra med färger och förklaringar:
+
+1. **Kretsbrytarens livscykel (CLOSED -> OPEN -> HALF_OPEN -> CLOSED):**
+   ```bash
+   ./demo-circuit-breaker.sh
+   ```
+2. **Thread Pool Starvation & Management Port Isolering:**
+   ```bash
+   ./demo-thread-starvation.sh
    ```
 
-2. **Med Resilience4j (`/fail-fast`):**  
-   Efter 3 misslyckade anrop bryts kretsen (`OPEN`). Resterande anrop nekas omedelbart på under 1 ms utan att belasta nätverket eller förbruka trådar, och användarna får ett säkert fallback-meddelande istället för ett systemhaveri.
-   ```bash
-   # Testa /fail-fast: Ger 200 OK med strukturerad Fallback
-   curl -i "http://localhost:8080/api/payment/fail-fast?tx=FAIL-1"
-   ```
 
 
 
