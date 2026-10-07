@@ -110,3 +110,15 @@ Applikationen startar på:
    curl -s http://localhost:8081/actuator/prometheus | grep resilience4j
    ```
 
+### D. Kör det automatiserade live-demoskriptet
+Ett färdigt interaktivt bash-skript som automatiskt kör hela livscykeln (CLOSED -> OPEN -> Fail-Fast mätning -> Vänta 5s -> HALF_OPEN -> Återhämtning till CLOSED) med färgkodade utskrifter:
+```bash
+# Inifrån WSL:
+cd backend/01-spring-resilience
+./demo-circuit-breaker.sh
+
+# Eller direkt från Windows PowerShell:
+wsl bash -l -c "cd /mnt/c/Users/s103228/.repositories/dev-interview-vault/backend/01-spring-resilience && ./demo-circuit-breaker.sh"
+```
+
+
