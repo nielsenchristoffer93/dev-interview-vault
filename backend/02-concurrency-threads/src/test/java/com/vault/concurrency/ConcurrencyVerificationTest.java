@@ -243,4 +243,163 @@ public class ConcurrencyVerificationTest {
 
         executor.shutdown();
     }
+
+    // =========================================================================
+    // TOPIC 5: ThreadPoolExecutor Bounded Queue & Backpressure
+    // =========================================================================
+
+    @Test
+    @DisplayName("5. The Fix: Bounded ThreadPool med CallerRunsPolicy ger backpressure och förhindrar OOM")
+    void testTopic5_threadPoolBoundedQueueAndBackpressure() throws Exception {
+        // Pool med 1 tråd och kö-kapacitet 2
+        var safePool = ThreadPoolLab.createSafeBoundedPool(1, 1, 2);
+
+        // Skicka in 5 uppgifter - överblivna uppgifter körs av Caller Thread (backpressure) utan att krascha
+        for (int i = 0; i < 5; i++) {
+            safePool.submit(() -> {
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException ignored) {
+                }
+            });
+        }
+        safePool.shutdown();
+        boolean finished = safePool.awaitTermination(3, TimeUnit.SECONDS);
+        assertThat(finished).isTrue();
+
+        // Verifiera att fail-fast pool kastar RejectedExecutionException vid överbelastning
+        var failFastPool = ThreadPoolLab.createFailFastPool(1, 1, 1);
+        CountDownLatch blockerLatch = new CountDownLatch(1);
+        failFastPool.submit(() -> {
+            try {
+                blockerLatch.await();
+            } catch (InterruptedException ignored) {
+            }
+        });
+
+        // Fyll kön (1 plats)
+        failFastPool.submit(() -> {});
+
+        // 3:e uppgiften ska nekas direkt (Fail-Fast)
+        boolean rejected = false;
+        try {
+            failFastPool.submit(() -> {});
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            rejected = true;
+        }
+
+        blockerLatch.countDown();
+        failFastPool.shutdown();
+        assertThat(rejected).isTrue();
+    }
+
+    // =========================================================================
+    // TOPIC 6: Semaphore Throttling & CyclicBarrier
+    // =========================================================================
+
+    @Test
+    @DisplayName("6. The Fix: Semaphore begränsar max samtidiga anslutningar till 2")
+    void testTopic6_semaphoreAndCyclicBarrier() throws Exception {
+        var throttledResource = new SynchronizationPrimitivesLab.ThrottledResource(2);
+        ExecutorService executor = Executors.newFixedThreadPool(6);
+        CountDownLatch doneLatch = new CountDownLatch(6);
+
+        for (int i = 0; i < 6; i++) {
+            executor.submit(() -> {
+                try {
+                    throttledResource.accessResource(30);
+                } catch (InterruptedException ignored) {
+                } finally {
+                    doneLatch.countDown();
+                }
+            });
+        }
+
+        doneLatch.await(5, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        // Bevis: Aldrig fler än 2 trådar samtidigt inne i resursen
+        assertThat(throttledResource.getMaxConcurrentObserved()).isLessThanOrEqualTo(2);
+
+        // Verifiera CyclicBarrier
+        var barrierWorker = new SynchronizationPrimitivesLab.MultiPhaseWorker(3);
+        ExecutorService barrierExecutor = Executors.newFixedThreadPool(3);
+        CountDownLatch barrierDone = new CountDownLatch(3);
+
+        for (int i = 0; i < 3; i++) {
+            barrierExecutor.submit(() -> {
+                try {
+                    barrierWorker.doPhaseWork();
+                } catch (Exception ignored) {
+                } finally {
+                    barrierDone.countDown();
+                }
+            });
+        }
+
+        barrierDone.await(5, TimeUnit.SECONDS);
+        barrierExecutor.shutdown();
+        assertThat(barrierWorker.getCompletedPhases()).isEqualTo(1);
+    }
+
+    // =========================================================================
+    // TOPIC 7: CompletableFuture Asynkrona Pipelines
+    // =========================================================================
+
+    @Test
+    @DisplayName("7. The Fix: CompletableFuture kör oberoende anrop parallellt och sammanställer resultat")
+    void testTopic7_completableFutureParallelPipeline() throws Exception {
+        AsyncPipelineLab lab = new AsyncPipelineLab();
+        ExecutorService executor = Executors.newFixedThreadPool(4);
+
+        long start = System.currentTimeMillis();
+        // Båda anropen tar 40ms var, men körs parallellt
+        var dashboardFuture = lab.fetchDashboardAsync("user-42", executor, 40, 40);
+        var dashboard = dashboardFuture.get(2, TimeUnit.SECONDS);
+        long elapsed = System.currentTimeMillis() - start;
+
+        assertThat(dashboard.profile().name()).isEqualTo("Alice");
+        assertThat(dashboard.orders().totalOrders()).isEqualTo(42);
+        // Borde ta ca 40-70ms, betydligt mindre än sekventiella 80ms+
+        assertThat(elapsed).isLessThan(150);
+
+        // Verifiera fallback vid fel
+        var fallbackResult = lab.fetchWithFallback("PaymentService", true, executor).get(1, TimeUnit.SECONDS);
+        assertThat(fallbackResult).isEqualTo("FALLBACK_FOR_PaymentService");
+
+        executor.shutdown();
+    }
+
+    // =========================================================================
+    // TOPIC 8: Producer-Consumer med BlockingQueue
+    // =========================================================================
+
+    @Test
+    @DisplayName("8. The Fix: Producer-Consumer via BlockingQueue ger automatisk backpressure")
+    void testTopic8_producerConsumerWithBlockingQueue() throws Exception {
+        ProducerConsumerLab lab = new ProducerConsumerLab(2);
+
+        lab.produce("ITEM_1", 100);
+        lab.produce("ITEM_2", 100);
+        assertThat(lab.getQueueSize()).isEqualTo(2);
+
+        // Att producera ett 3:e objekt ska ge backpressure eftersom kapaciteten är 2
+        boolean backpressureTriggered = false;
+        try {
+            lab.produce("ITEM_3", 20); // 20 ms timeout
+        } catch (IllegalStateException e) {
+            backpressureTriggered = true;
+        }
+        assertThat(backpressureTriggered).isTrue();
+
+        // Konsumera
+        String consumed1 = lab.consume(100);
+        assertThat(consumed1).isEqualTo("ITEM_1");
+        assertThat(lab.getConsumedCount()).isEqualTo(1);
+
+        // Nu finns plats igen
+        lab.produce("ITEM_3", 100);
+        assertThat(lab.getProducedCount()).isEqualTo(3);
+    }
 }
+

@@ -21,6 +21,11 @@ Om en utvecklare sparar föränderligt tillstånd (t.ex. `private int orderCount
 * **Check-then-Act Race Condition:** När separata atomära anrop (`containsKey` + `put`) utförs icke-atomärt och leder till Cache Stampede.
 * **ThreadLocal Leak:** När data inte rensas i en trådpool och läcker över till nästa request på samma worker-tråd.
 * **Carrier Thread Pinning:** När en Virtual Thread (Java 21) blockerar i ett `synchronized`-block och låser den underliggande OS-tråden.
+* **Bounded Queue & Backpressure:** Begränsad köstorlek (`ArrayBlockingQueue`) och `CallerRunsPolicy` som bromsar inkommande producenter istället för OOM (`newFixedThreadPool` med unbounded queue).
+* **Synchronizers (Semaphore vs Barrier vs Latch):** `Semaphore` för samtidiga kvoter/throttling, `CyclicBarrier` för synkroniserade faser mellan trådar, och `CountDownLatch` för engångs-nedräkning.
+* **CompletableFuture Async Pipelines:** Asynkrona pipelines utan trådblockering (`supplyAsync`, `thenCombine`) och feltolerans med `.exceptionally()`.
+* **Producer-Consumer Pattern:** Avkopplad arbetsfördelning via `BlockingQueue` (`put`/`take` / `offer`/`poll`) utan behov av felbenägen `wait()`/`notify()`.
+
 
 ---
 
@@ -62,7 +67,7 @@ jcmd <PID> Thread.print | grep -A 20 "Found one Java-level deadlock"
 
 ---
 
-## 5. Koden & Verifiering (5 Concurrency-labbmodeller)
+## 5. Koden & Verifiering (9 Concurrency-labbmodeller)
 
 * **Topic 0 (Lost Updates & CAS):**
   * The Flaw: [UnsafeOrderService.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/UnsafeOrderService.java) – Primitiv `int` i singleton-läge; tappar räkningar.
@@ -75,17 +80,26 @@ jcmd <PID> Thread.print | grep -A 20 "Found one Java-level deadlock"
   * Lab & Fix: [ThreadLocalLab.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/ThreadLocalLab.java) – Förorening av worker threads i trådpool vs `try-with-resources / finally { remove(); }`.
 * **Topic 4 (Virtual Thread Pinning):**
   * Lab & Fix: [VirtualThreadPinningLab.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/VirtualThreadPinningLab.java) – `synchronized` (Carrier Pinning) vs `ReentrantLock`.
+* **Topic 5 (ThreadPoolExecutor & Backpressure):**
+  * Lab & Fix: [ThreadPoolLab.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/ThreadPoolLab.java) – Unbounded queue OOM-risk vs Bounded Queue med `CallerRunsPolicy` (backpressure) och `AbortPolicy`.
+* **Topic 6 (Synchronizers: Semaphore & CyclicBarrier):**
+  * Lab & Fix: [SynchronizationPrimitivesLab.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/SynchronizationPrimitivesLab.java) – `Semaphore` för samtidighetsbegränsning & `CyclicBarrier` för synkroniserade trådfaser.
+* **Topic 7 (CompletableFuture Async Pipelines):**
+  * Lab & Fix: [AsyncPipelineLab.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/AsyncPipelineLab.java) – Icke-blockerande `supplyAsync`, `thenCombine` och felsäker `.exceptionally()` fallback.
+* **Topic 8 (Producer-Consumer med BlockingQueue):**
+  * Lab & Fix: [ProducerConsumerLab.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/ProducerConsumerLab.java) – `ArrayBlockingQueue` med naturlig backpressure vs lågnivå `wait/notify`.
 * **Spring Boot REST App:**
   * [OrderController.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/OrderController.java) & [ConcurrencyApplication.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/ConcurrencyApplication.java).
 * **Verification Test:**
-  * [ConcurrencyVerificationTest.java](file:///backend/02-concurrency-threads/src/test/java/com/vault/concurrency/ConcurrencyVerificationTest.java) – Full testsvit med 6 automatiserade enhetstester.
+  * [ConcurrencyVerificationTest.java](file:///backend/02-concurrency-threads/src/test/java/com/vault/concurrency/ConcurrencyVerificationTest.java) – Full testsvit med 10 automatiserade enhetstester som täcker alla 8 koncept.
+
 
 ---
 
 ## 6. Så här kör du testerna och live-demonstrationen
 
 ### A. Kör enhetstesterna i JVM:en (Inget behov av server)
-Kör hela sviten (alla 5 ämnen) med Maven:
+Kör hela sviten (alla 8 ämnen, 10 tester) med Maven:
 ```bash
 cd backend/02-concurrency-threads
 mvn clean test
@@ -95,6 +109,11 @@ mvn clean test
   * Visar att `UnsafeCache` kör DB-anropet 20 gånger parallellt, medan `computeIfAbsent` kör det exakt 1 gång.
   * Visar hur en efterföljande användare i en trådpool ärver föregående användares identitet om `remove()` glöms.
   * Visar hur `tryLock` ger upp efter timeout istället för att fastna i deadlock.
+  * Visar hur `CallerRunsPolicy` tvingar anropande tråd att exekvera jobb när kön är full (backpressure), och hur `AbortPolicy` kastar `RejectedExecutionException`.
+  * Visar hur `Semaphore` strikt begränsar max samtidiga anrop och hur `CyclicBarrier` samlar N trådar per fas.
+  * Visar hur `CompletableFuture` slår samman två asynkrona anrop och hanterar externa fel via fallback.
+  * Visar hur `ArrayBlockingQueue` hanterar mättnad och returnerar `false` vid timeout utan att låsa applikationen.
+
 
 ---
 
@@ -117,7 +136,7 @@ cd backend/02-concurrency-threads
 
 ---
 
-## 7. Senior Intervju-djupdykning: 4 Klassiska Concurrency-frågor
+## 7. Senior Intervju-djupdykning: 8 Klassiska Concurrency-frågor
 
 ### 1. Hur uppstår Deadlocks och hur förhindrar du dem?
 * **Orsak (Lock Ordering Inversion):** Tråd 1 tar Lås A och väntar på B. Tråd 2 tar Lås B och väntar på A. Båda fryser för evigt.
@@ -145,5 +164,32 @@ cd backend/02-concurrency-threads
 * Virtual Threads körs ovanpå ett fåtal OS-trådar (*Carrier Threads*). Vid blockerande I/O (nätverk/databas) monteras de normalt av.
 * **Men:** Om tråden blockerar inuti ett **`synchronized`**-block blir den "pinned" vid sin carrier-tråd och blockerar hela OS-tråden.
 * **Lösning:** Använd **`ReentrantLock`** istället för `synchronized` i modern Java 21-kod.
+
+### 5. Varför anses `Executors.newFixedThreadPool` vara ett anti-pattern i produktion?
+* `Executors.newFixedThreadPool(n)` använder internt en `LinkedBlockingQueue` utan kapacitetstak (`Integer.MAX_VALUE`).
+* Om inflödet av uppgifter tillfälligt överstiger arbetstrådarnas kapacitet växer kön i det oändliga tills JVM kraschar med `OutOfMemoryError: Java heap space`.
+* `Executors.newCachedThreadPool()` har motsatt problem: obegränsat `maxPoolSize`, vilket skapar tusentals OS-trådar tills JVM kraschar med `OutOfMemoryError: unable to create native thread`.
+* **Lösning:** Konfigurera alltid en explicit `ThreadPoolExecutor` med bunden kö (t.ex. `ArrayBlockingQueue(100)`), kontrollerad poolstorlek och en `CallerRunsPolicy` som ger naturlig **backpressure** genom att tvinga anroparen att utföra jobbet när kön är full.
+
+### 6. Vad är skillnaden mellan `CountDownLatch`, `CyclicBarrier` och `Semaphore`?
+* **`Semaphore(permits)`:** Begränsar samtidighet (rate limiting / kvothantering). Trådar anropar `acquire()` och `release()`. Exempel: max 5 samtidiga anrop till ett externt legacy-API.
+* **`CountDownLatch(N)`:** Engångsräknare. Trådar anropar `await()` och väntar tills N händelser har skett (`countDown()`). Kan inte nollställas eller återanvändas.
+* **`CyclicBarrier(N)`:** Fas-koordinering. N trådar väntar på varandra via `await()`. När alla N trådar har anlänt till barriären släpps alla igenom samtidigt, och barriären återställs automatiskt för nästa fas.
+
+### 7. Hur bygger man icke-blockerande pipelines med `CompletableFuture` och hanterar fel?
+* Kör inte blockerande `get()` direkt på varje delsteg. Använd `supplyAsync()` för asynkrona anrop på en dedikerad trådpool (undvik delad `ForkJoinPool` för lång I/O).
+* Komponera samman parallella delresultat med `thenCombine()`:
+  ```java
+  var userFuture = CompletableFuture.supplyAsync(() -> fetchUser(id), pool);
+  var scoreFuture = CompletableFuture.supplyAsync(() -> fetchScore(id), pool);
+  return userFuture.thenCombine(scoreFuture, (user, score) -> new Profile(user, score));
+  ```
+* Hantera fel och partiella avbrott med `.exceptionally(ex -> fallbackValue)` så att inte hela anropet havererar om en mikrotjänst felar.
+
+### 8. Varför föredrar vi `BlockingQueue` framför `wait()` och `notify()` för Producer-Consumer?
+* Lågnivå `wait()` och `notifyAll()` kräver manuell hantering av monitorlås, `synchronized`-block och loopar med villkorskontroll (`while (!ready)`). Det är lätt att drabbas av *missed signals*, *spurious wakeups* eller dödlägen.
+* `BlockingQueue` (såsom `ArrayBlockingQueue`) kapslar in all synkronisering och låsning internt.
+* Med `offer(item, timeout, unit)` och `poll(timeout, unit)` får man inbyggd trådsäkerhet, timeouts och backpressure på ett par rader läsbar kod.
+
 
 
