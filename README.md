@@ -62,24 +62,20 @@ Varje labbmodul är strikt isolerad och byggd kring samma trestegsmönster:
 
 ## 🚀 Snabbstart & Lab-infrastruktur
 
-### ⚡ Allt-i-ett installationsskript (Rekommenderat)
+### ⚡ Allt-i-ett installationsskript i WSL / Ubuntu (Rekommenderat)
 För att snabbt verifiera och installera alla förutsättningar (`curl`, `jq`, `kubectl`, `minikube`), fixa Docker-rättigheter och starta alla Compose-containrar i ett enda steg:
 
-* **I WSL / Linux (Rekommenderat):**
-  ```bash
-  ./setup-prerequisites.sh
-  
-  # Vill du även att Minikube startas automatiskt direkt:
-  ./setup-prerequisites.sh --with-minikube
-  ```
-  *(Eller från Windows PowerShell via WSL: `wsl ./setup-prerequisites.sh`)*
+```bash
+# Kör inifrån WSL / Ubuntu:
+./setup-prerequisites.sh
 
-* **I Windows PowerShell (Installerar via winget):**
-  ```powershell
-  .\setup-prerequisites.ps1
-  ```
+# Vill du även att Minikube startas automatiskt direkt:
+./setup-prerequisites.sh --with-minikube
+```
+*(Eller anropa det direkt från Windows-terminalen med: `wsl ./setup-prerequisites.sh`)*
 
 ---
+
 
 ### Manuell start av delar
 
