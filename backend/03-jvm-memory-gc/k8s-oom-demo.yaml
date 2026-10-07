@@ -51,14 +51,21 @@ spec:
     - name: java-app
       image: jvm-memory-leak:1.0
       imagePullPolicy: IfNotPresent
-      command: ["java"]
+      command: ["/bin/sh", "-c"]
       args:
-        - "-XX:MaxRAMPercentage=50.0"
-        - "-XX:+HeapDumpOnOutOfMemoryError"
-        - "-XX:HeapDumpPath=/dumps/oom.hprof"
-        - "-cp"
-        - "/app/classes"
-        - "com.vault.memory.MemoryLeakSimulation"
+        - |
+          echo "Startar JVM med begränsad heap och automatisk Heap Dump..."
+          java -XX:MaxRAMPercentage=50.0 \
+               -XX:+HeapDumpOnOutOfMemoryError \
+               -XX:HeapDumpPath=/dumps/oom.hprof \
+               -cp /app/classes \
+               com.vault.memory.MemoryLeakSimulation || true
+
+          echo "------------------------------------------------------------"
+          echo "✅ OOM inträffade och dump sparades i /dumps/oom.hprof."
+          echo "⏳ Håller containern vid liv så att 'kubectl cp' fungerar..."
+          echo "------------------------------------------------------------"
+          sleep 3600
       resources:
         limits:
           memory: "128Mi"

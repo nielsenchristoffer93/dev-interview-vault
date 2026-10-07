@@ -152,14 +152,17 @@ State:          Terminated
 ### Steg 4: Verifiera och extrahera Heap Dump från `heapdump-pod`
 I `heapdump-pod` klipper JVM:en minnet internt (`OutOfMemoryError`) innan Linux cgroups slår till:
 ```bash
-# Se loggen där JVM själv dumpar minnet innan avslut:
+# Se loggen där JVM själv dumpar minnet:
 kubectl logs heapdump-pod
 ```
 Output:
 ```text
+Startar JVM med begränsad heap och automatisk Heap Dump...
+java.lang.OutOfMemoryError: Java heap space
 Dumping heap to /dumps/oom.hprof ...
 Heap dump file created [...]
-Exception in thread "main" java.lang.OutOfMemoryError: Java heap space
+✅ OOM inträffade och dump sparades i /dumps/oom.hprof.
+⏳ Håller containern vid liv så att 'kubectl cp' fungerar...
 ```
 
 Ladda ner heap dumpen från poddens volym till din lokala maskin:
@@ -169,6 +172,11 @@ kubectl cp heapdump-pod:/dumps/oom.hprof ./oom.hprof
 # Verifiera att filen laddades ner:
 ls -lh ./oom.hprof
 ```
+
+> [!NOTE]
+> **Intervju-insikt (Varför podden måste hållas vid liv):**  
+> `kubectl cp` kör `tar` under huven via `kubectl exec` inuti containern. Om containern tillåts dö direkt vid `OutOfMemoryError` hamnar podden i tillståndet `Failed`, vilket ger felet `cannot exec into a container in a completed pod`.  
+> I testmanifestet håller ett `sleep 3600`-skal containern vid liv i `Running`-läge så att du hinner ladda ner dumpen. I produktion skickas dumpar istället automatiskt till S3 eller sparas på en delad `PersistentVolumeClaim` (PVC).
 
 ---
 
