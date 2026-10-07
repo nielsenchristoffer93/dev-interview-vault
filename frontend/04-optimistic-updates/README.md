@@ -1,28 +1,72 @@
 # 🚀 04-optimistic-updates: TanStack Query Mutation & Rollback
 
-## 1. Problem: Vad kraschar eller varför bryr vi oss?
-I moderna appar förväntar sig användare omedelbar respons när de klickar på "Like", "Spara" eller bockar av en todo.
-Två vanliga misstag uppstår:
-1. **Långsam "Spinner UX":** Gränssnittet fryser med en laddningsindikator i 1–2 sekunder tills servern svarat med 200 OK.
-2. **Trasig Desynkad Optimism (Utan Rollback):** Utvecklaren uppdaterar lokalt tillstånd direkt för att göra UI snabbt, men om servern svarar med `500 Internal Server Error` eller `403 Forbidden` finns ingen felåterställning. Användaren ser att uppgiften är markerad som klar, men vid nästa sidomladdning har ändringen försvunnit!
+Denna modul täcker 3 fundamentala UX- och mutationsmönster för blixtsnabba gränssnitt i moderna webbapplikationer. Varje scenario presenterar problemet (vad som kraschar och varför vi bryr oss), dess specifika **Keyword Bingo** (facit-lingo), samt ett **Verklighets-svar (30–60 sek)** skräddarsytt för tekniska intervjuer.
 
 ---
 
-## 2. Keyword Bingo (Facit-lingo)
-* **Optimistic UI (Optimistiska uppdateringar):** UI antar att anropet kommer att lyckas och uppdaterar omedelbart cachen innan servern har svarat.
-* **`cancelQueries`:** Avbryter pågående utgående refetches för att förhindra att äldre data skriver över vår optimistiska uppdatering.
-* **Snapshot Rollback (`context.previousData`):** Att spara undan en kopia av cachen i `onMutate` och returnera den så att `onError` kan återställa ursprungstillståndet vid fel.
-* **`onSettled` Invalidation:** Att alltid invalidera queryn när mutationen är klar (oavsett om den lyckades eller misslyckades) för att garantera att klienten synkar med serverns sanna tillstånd.
-* **Race Condition on Concurrent Mutations:** När två optimistiska uppdateringar körs i snabb följd mot samma resurs.
+## 1. Koncept & Scenarier
+
+### Scenario 1: "Spinner UX" & Upplevd Latens (Laddningsindikatorer vs Omedelbar feedback)
+
+#### 1. Problem: Vad kraschar eller varför bryr vi oss?
+I traditionella webbapplikationer väntar gränssnittet på ett `200 OK` från servern innan något uppdateras på skärmen. När en användare klickar på "Like", bockar av en todo eller sparar en statusändring visas en blockerande laddnings-spinner i 500ms till 2 sekunder.
+
+Detta resulterar i en seg, styltig upplevelse där användaren upplever systemet som långsamt trots att backend svarar inom normala SLA:er.
+
+#### 2. Keyword Bingo (Facit-lingo)
+* **Perceived Latency (Upplevd latens):** Hur snabbt användaren uppfattar att applikationen svarar (ofta viktigare för användarupplevelsen än faktisk nätverkslatens).
+* **Optimistic UI (Optimistiska uppdateringar):** Designmönster där gränssnittet antar att anropet kommer att lyckas och omedelbart uppdaterar cachen på 16ms (inom nästa bildruta).
+* **Instant Feedback Loop:** Att eliminera laddningsindikatorer för högfrekventa användarinteraktioner.
+* **Micro-interactions:** Snabba åtgärder som likes, toggles och avbockningar som kräver noll fördröjning.
+
+#### 3. Verklighets-svar (30–60 sek)
+> *"Användare förväntar sig att gränssnittet reagerar omedelbart. Att låsa UI:t med spinners i 1 sekund för enkla åtgärder som att gilla ett inlägg eller bocka av en uppgift skapar en onödigt trög användarupplevelse. Med optimistiska uppdateringar uppdaterar vi klientens lokala cache på bråkdelen av en millisekund innan nätverksanropet ens skickats. Användaren upplever systemet som blixtsnabbt, medan synkroniseringen mot servern sker i bakgrunden."*
+
+**Labb & Kod:** [OptimisticTodoMutation.ts](file:///frontend/04-optimistic-updates/OptimisticTodoMutation.ts)
 
 ---
 
-## 3. Verklighets-svar (30–60 sek)
-> *"För att ge användaren en blixtsnabb upplevelse använder vi optimistiska uppdateringar via TanStack Query. I `onMutate` avbryter vi först eventuella pågående queries med `cancelQueries` för att undvika race conditions. Sedan sparar vi en snapshot av nuvarande cache-data och uppdaterar cachen omedelbart med det förväntade resultatet. Om serveranropet misslyckas fångar vi det i `onError` och rullar omedelbart tillbaka cachen med hjälp av vår sparade snapshot. Slutligen kör vi alltid `invalidateQueries` i `onSettled` så att klienten garanterat återfår serverns sanna tillstånd."*
+### Scenario 2: Trasig Optimism & Desynkat State (Saknad Rollback vid 500/Nätverksfel)
+
+#### 1. Problem: Vad kraschar eller varför bryr vi oss?
+En utvecklare implementerar "optimism" genom att helt enkelt uppdatera lokalt state direkt utan någon felåterställningsmekanism.
+
+När servern kastar `500 Internal Server Error`, `403 Forbidden` (saknad behörighet), eller när mobilnätet dör, visas ändringen fortfarande som genomförd på skärmen. När användaren senare laddar om sidan försvinner ändringen spårlöst (**Ghost Updates**). Användaren tappar förtroendet för applikationen eftersom gränssnittet visat ett falskt tillstånd.
+
+#### 2. Keyword Bingo (Facit-lingo)
+* **Ghost Updates / Silent Desync:** När gränssnittet visar en ändring som servern har nekat eller misslyckats med att spara.
+* **Rollback Mechanism:** Möjligheten att omedelbart och exakt återställa tidigare tillstånd om nätverksanropet misslyckas.
+* **Error Notification / Toast:** Att tydligt kommunicera till användaren att åtgärden inte kunde sparas, samtidigt som UI rullas tillbaka mjukt.
+* **Transient vs Fatal Mutation Failure:** Att skilja på nätverksavbrott som kan återförsökas och affärsvalideringsfel som kräver användaråtgärd.
+
+#### 3. Verklighets-svar (30–60 sek)
+> *"Optimistiska uppdateringar utan rollback är livsfarliga – om backend kastar 500 eller nekar anropet med 403 tror användaren att uppgiften sparats, men vid nästa sidomladdning är ändringen borta. Det bryter helt mot principen om dataintegritet. För att göra optimistiska uppdateringar säkra måste vi alltid spara en snapshot av det ursprungliga tillståndet innan vi muterar cachen. Vid minsta fel rullar vi omedelbart tillbaka till den sparade snapshoten och meddelar användaren med ett tydligt felmeddelande."*
+
+**Labb & Kod:** [FlawedMutation.ts](file:///frontend/04-optimistic-updates/FlawedMutation.ts) vs [OptimisticTodoMutation.ts](file:///frontend/04-optimistic-updates/OptimisticTodoMutation.ts)
 
 ---
 
-## 4. Felsökningsguide (Kommandon & Verktyg)
+### Scenario 3: Den fullständiga TanStack Mutation Lifecycle (`cancelQueries`, snapshot, `onError` rollback & `onSettled`)
+
+#### 1. Problem: Vad kraschar eller varför bryr vi oss?
+Om två snabba mutationer körs parallellt på samma resurs, eller om en pågående bakgrundsrefetch slutförs precis medan en optimistisk mutation sker, uppstår en allvarlig *Race Condition*: den äldre bakgrundsdatan skriver över den optimistiska uppdateringen.
+
+Dessutom riskerar cachen att glida ifrån serverns faktiska genererade värden (t.ex. server-genererade ID:n eller tidsstämplar) om den inte slutgiltigt synkas.
+
+#### 2. Keyword Bingo (Facit-lingo)
+* **`cancelQueries`:** Avbryter alla pågående utgående refetches för att förhindra att inaktuell serverdata skriver över vår optimistiska uppdatering.
+* **`onMutate` Snapshot:** Sparar `previousData` och returnerar ett kontextobjekt som skickas vidare till felhanteraren.
+* **`onError(err, newTodo, context)` Rollback:** Återställer cachen med `queryClient.setQueryData(key, context.previousData)`.
+* **`onSettled` Invalidation:** Körs **alltid** oavsett om anropet lyckades eller misslyckades (`queryClient.invalidateQueries`) för att garantera att klienten synkar med serverns sanna tillstånd.
+
+#### 3. Verklighets-svar (30–60 sek)
+> *"Den kompletta livscykeln för en robust optimistisk mutation i TanStack Query består av fyra steg: I `onMutate` avbryter vi först eventuella pågående queries med `cancelQueries` för att undvika race conditions. Därefter sparar vi en snapshot av nuvarande data och uppdaterar cachen optimistiskt. I `onError` använder vi den sparade snapshoten för att omedelbart återställa cachen om anropet kraschar. Slutligen kör vi alltid `invalidateQueries` i `onSettled` – oavsett framgång eller fel – för att garantera att klienten slutgiltigt synkas med serverns auktoritativa sanning."*
+
+**Labb & Kod:** [OptimisticTodoMutation.ts](file:///frontend/04-optimistic-updates/OptimisticTodoMutation.ts) & [OptimisticRollback.test.ts](file:///frontend/04-optimistic-updates/OptimisticRollback.test.ts)
+
+---
+
+## 2. Felsökningsguide (Kommandon & Verktyg)
 
 ### A. Simulera trasigt nätverk i DevTools
 1. Öppna Chrome DevTools -> **Network**.
@@ -31,8 +75,17 @@ Två vanliga misstag uppstår:
 
 ---
 
-## 5. Koden & Verifiering
+## 3. Koden & Verifiering
 
 * **The Flaw:** [FlawedMutation.ts](file:///frontend/04-optimistic-updates/FlawedMutation.ts) – Uppdaterar UI utan felhantering eller rollback vid nätverksfel.
 * **The Fix:** [OptimisticTodoMutation.ts](file:///frontend/04-optimistic-updates/OptimisticTodoMutation.ts) – Komplett mönster med `cancelQueries`, snapshot, `onError` rollback och `onSettled`.
 * **Verification Test:** [OptimisticRollback.test.ts](file:///frontend/04-optimistic-updates/OptimisticRollback.test.ts) – Bevisar att rollback återställer tidigare data när API kastar 500.
+
+---
+
+## 4. Så här kör du testerna
+
+```bash
+cd frontend/04-optimistic-updates
+npm test
+```
