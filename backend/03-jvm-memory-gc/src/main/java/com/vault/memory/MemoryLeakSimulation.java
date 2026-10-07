@@ -27,4 +27,25 @@ public class MemoryLeakSimulation {
     public void clear() {
         unboundedCache.clear();
     }
+
+    public static void main(String[] args) {
+        System.out.println("🔥 Startar simulering av minnesläcka...");
+        System.out.println("💡 Tips: Kör med '-Xmx32m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=./oom.hprof'");
+        MemoryLeakSimulation leak = new MemoryLeakSimulation();
+        int count = 0;
+        try {
+            while (true) {
+                leak.processRequest(1024 * 100); // 100 KB
+                count++;
+                if (count % 100 == 0) {
+                    long freeMem = Runtime.getRuntime().freeMemory() / (1024 * 1024);
+                    long totalMem = Runtime.getRuntime().totalMemory() / (1024 * 1024);
+                    System.out.printf("Allokerat: %d objekt | Ledigt minne: %d MB / %d MB%n", count, freeMem, totalMem);
+                }
+            }
+        } catch (OutOfMemoryError oom) {
+            System.err.println("💥 OutOfMemoryError inträffade efter " + count + " allokeringar!");
+            throw oom;
+        }
+    }
 }

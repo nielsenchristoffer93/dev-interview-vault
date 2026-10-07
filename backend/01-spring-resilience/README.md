@@ -195,6 +195,36 @@ Två kompletta skript finns färdiga att köra med färger och förklaringar:
    ./demo-thread-starvation.sh
    ```
 
+---
+
+## 9. Varför separat management-port (8081) är verksamhetskritiskt i Kubernetes
+
+I enterprise-miljöer och tekniska intervjuer är separat management-port en standardfråga. Det finns två avgörande anledningar till att Actuator och affärstrafik **aldrig** ska dela port:
+
+### A. Skydd mot "Dödsspiralen" (The Kubernetes Death Spiral)
+1. **Tomcat har separata trådpooler per port:**  
+   Port 8080 (kundtrafik) har sin egen trådpool, medan port 8081 (management) har en helt fristående Connector med en egen trådpool.
+2. **Vad händer om allt delar port 8080 vid hög last?**  
+   Om alla Tomcats worker-trådar fastnar på hängande anrop (`/unsafe-hang`), hamnar Kubelets Liveness Probe-anrop längst bak i kön och timear ut (> 3s). Kubernetes antar då felaktigt att podden har hängt sig och skjuter ner den med `SIGKILL`.
+3. **Dominoeffekten / Kaskadomstarter:**  
+   När Pod 1 startas om flyttas all dess trafik omedelbart över till kvarvarande poddar. Dessa drabbas genast av samma trådtömning och dödas av Kubelet. Hela klustret hamnar i en cyklisk kraschloop (**Death Spiral**) som skapar timslång nertid – trots att applikationskoden egentligen fungerar.
+4. **Hur port 8081 räddar situationen:**  
+   När port 8080 är 100% blockerad kan Kubelet fortfarande anropa `http://pod:8081/actuator/health/liveness` på under 2 ms. Kubernetes vet att containern lever och startar inte om den.
+
+*(Se även modulen [cloud-and-k8s/02-k8s-probes-actuator](file:///cloud-and-k8s/02-k8s-probes-actuator/README.md) för fullständiga Kubernetes-manifest och probes).*
+
+---
+
+### B. Säkerhetsisolering (Security & Attack Surface)
+* **Ingress / API Gateway:** Exponerar enbart port 8080 mot externa användare och internet.
+* **Port 8081:** Exponeras enbart internt i klustret för Kubelet och Prometheus skrapning.
+* **Varför det är kritiskt:**  
+  Actuator innehåller endpoints som kan vara en katastrof om de läcker utåt:
+  * `/actuator/env`: Kan avslöja miljövariabler, API-nycklar och databasuppgifter.
+  * `/actuator/heapdump`: Låter vem som helst ladda ner hela JVM-minnet med sessionsdata och hemligheter i klartext.
+  * `/actuator/prometheus`: Avslöjar intern systemmetrik och anropsmönster för potentiella angripare.
+
+
 
 
 

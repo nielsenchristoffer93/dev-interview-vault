@@ -64,3 +64,43 @@ ENTRYPOINT ["java", \
 * **The Flaw:** [MemoryLeakSimulation.java](file:///backend/03-jvm-memory-gc/src/main/java/com/vault/memory/MemoryLeakSimulation.java) – Obegränsad statisk cache som samlar data utan TTL eller storleksgräns.
 * **The Fix:** [BoundedMemoryCache.java](file:///backend/03-jvm-memory-gc/src/main/java/com/vault/memory/BoundedMemoryCache.java) – Bounded LRU-cache som evicerar äldsta poster och sätter tak för minnesanvändning.
 * **Verification Test:** [MemoryVerificationTest.java](file:///backend/03-jvm-memory-gc/src/test/java/com/vault/memory/MemoryVerificationTest.java) – Bevisar att minnet hålls konstant trots tusentals inmatningar.
+
+---
+
+## 6. Så här testar du (Ingen Kubernetes krävs!)
+
+Du behöver **inget Kubernetes-kluster** för att köra och testa koden i denna modul. Kubernetes-avsnitten ovan beskriver hur du felsöker och resonerar kring detta i **produktionsmiljö och på tekniska intervjuer**.
+
+Hela modulen kan köras och verifieras lokalt på din maskin:
+
+### A. Kör enhetstesterna med Maven
+Från modulkatalogen i WSL:
+```bash
+cd backend/03-jvm-memory-gc
+mvn clean test
+```
+Eller direkt från Windows PowerShell (via WSL):
+```powershell
+wsl bash -l -c "cd /mnt/c/Users/s103228/.repositories/dev-interview-vault/backend/03-jvm-memory-gc && mvn test"
+```
+* **Vad testet bevisar:** 
+  * `testTheFlaw_unboundedGrowth`: Visar hur objekt ackumuleras i minnet och aldrig släpps för GC.
+  * `testTheFix_boundedCacheEvictsEldest`: Visar hur LRU-cachen klipper referenserna till gamla poster så att minnesanvändningen hålls konstant under taket (50 poster).
+
+---
+
+### B. Framkalla en riktig OutOfMemoryError & skapa en Heap Dump lokalt
+Vill du prova hur en riktig `OutOfMemoryError` ser ut och se en `.hprof`-fil skapas på disken lokalt utan Kubernetes?
+
+Kör det färdiga skriptet:
+```bash
+# Inifrån WSL:
+cd backend/03-jvm-memory-gc
+./demo-local-oom.sh
+
+# Eller från Windows PowerShell:
+wsl bash -l -c "cd /mnt/c/Users/s103228/.repositories/dev-interview-vault/backend/03-jvm-memory-gc && ./demo-local-oom.sh"
+```
+
+Skriptet startar [MemoryLeakSimulation](file:///backend/03-jvm-memory-gc/src/main/java/com/vault/memory/MemoryLeakSimulation.java) med begränsad heap (`-Xmx32m`) och flaggan `-XX:+HeapDumpOnOutOfMemoryError`. Inom 2 sekunder får du en färdig `oom.hprof` i mappen som du kan öppna och inspektera i t.ex. **Eclipse Memory Analyzer (MAT)** eller **VisualVM**!
+
