@@ -1,32 +1,74 @@
 # ☸️ 01-k8s-pod-to-ingress: Ingress -> Service -> Pod Port Mappings
 
-## 1. Problem: Vad kraschar eller varför bryr vi oss?
-Driftsättning av en ny mikrotjänst i Kubernetes lyckas utan kompileringsfel. Poddarna visar status `Running (1/1)`. Men externa användare möts av **502 Bad Gateway** eller **503 Service Temporarily Unavailable** från NGINX/Traefik Ingress Controller.
-
-Nybörjarmisstaget som drabbar 80% av utvecklare:
-1. **Port vs TargetPort förväxling:** Servicen lyssnar på `port: 80`, men vidarebefordrar till `targetPort: 80` istället för containerns faktiska applikationsport (t.ex. `8080` för Spring Boot eller `3000` för Node.js).
-2. **Selector Mismatch:** Service-definitionens `spec.selector` matchar inte exakt Poddens `metadata.labels`. Servicen har därmed **noll registrerade endpoints** (`Endpoints: <none>`).
+Denna modul täcker 3 fundamentala nätverks- och routing-utmaningar i Kubernetes från Ingress Controller hela vägen till applikationscontainern. Varje scenario presenterar problemet (vad som kraschar och varför vi bryr oss), dess specifika **Keyword Bingo** (facit-lingo), samt ett **Verklighets-svar (30–60 sek)** skräddarsytt för tekniska intervjuer.
 
 ---
 
-## 2. Keyword Bingo (Facit-lingo)
+## 1. Koncept & Scenarier
+
+### Scenario 1: Port vs TargetPort förväxling (502 Bad Gateway)
+
+#### 1. Problem: Vad kraschar eller varför bryr vi oss?
+Driftsättningen av en applikation i Kubernetes lyckas helt utan kompileringsfel och poddarna visar status `Running (1/1)`. Men när externa användare gör anrop möts de omedelbart av **`502 Bad Gateway`** från Ingress Controllern (NGINX/Traefik).
+
+Orsaken är en förväxling av Kubernetes port-hierarki: Service-definitionen anger `port: 80` och vidarebefordrar till `targetPort: 80` istället för containerns faktiska applikationsport (t.ex. `8080` för Spring Boot eller `3000` för Node.js). Servicen försöker skicka trafik till en stängd port inuti podden, vilket resulterar i *Connection Refused*.
+
+#### 2. Keyword Bingo (Facit-lingo)
 * **Port-hierarkin:**
-  * **Ingress `service.port.number`:** Porten som Ingress Controller kontaktar (måste matcha Servicens `port`).
-  * **Service `spec.ports[*].port`:** Den interna port som exponeras inom klustrets virtuella IP-nät (ClusterIP).
-  * **Service `spec.ports[*].targetPort`:** Porten inuti Poddens container där applikationsprocessen faktiskt lyssnar (`containerPort`).
-* **Selector Mismatch:** När etiketter (labels) inte matchar, vilket gör att Kubernetes Controller Manager inte länkar samman Pod och Service.
-* **Endpoints / EndpointSlice:** Kubernetes-objektet som håller de faktiska IP-adresserna till friska Poddar. Om `Endpoints: <none>` kommer trafik aldrig fram.
-* **502 Bad Gateway:** Ingress kan prata med Servicen, men anslutningen mot backend-podden nekas (Connection Refused pga fel port).
-* **503 Service Unavailable:** Ingress hittar inga friska endpoints alls för den angivna servicen.
+  * *Ingress `service.port.number`:* Porten som Ingress Controller kontaktar (måste matcha Servicens `port`).
+  * *Service `spec.ports[*].port`:* Den virtuella klusterporten inom klustrets privata nät (ClusterIP).
+  * *Service `spec.ports[*].targetPort`:* Den faktiska port där applikationen lyssnar inuti containern (`containerPort`).
+* **502 Bad Gateway:** Ingress kan nå Servicen, men vidarekopplingen till Podden nekas (*Connection Refused*).
+* **ContainerPort:** Deklarerad port i Pod-specifikationen (`containerPort: 8080`).
+* **Connection Refused:** Nätverksfelet som uppstår när ingen process lyssnar på målporten.
+
+#### 3. Verklighets-svar (30–60 sek)
+> *"Ett 502 Bad Gateway från Ingress betyder nästan alltid att Kubernetes når fram till poddens IP-adress men att anslutningen nekas på portnivå. Felet är oftast en förväxling mellan `port` och `targetPort` i Servicen. Servicens `port` är den interna klusterporten (ofta 80), medan `targetPort` måste matcha containerns faktiska lyssningsport, exempelvis 8080 för Spring Boot. Bästa praxis är att namnge porten i containern med `name: http` och referera till namnet i servicens `targetPort: http` för att helt eliminera numeriska portmissar."*
+
+**Labb & Kod:** [flawed-routing.yaml](file:///cloud-and-k8s/01-k8s-pod-to-ingress/flawed-routing.yaml) vs [fixed-routing.yaml](file:///cloud-and-k8s/01-k8s-pod-to-ingress/fixed-routing.yaml)
 
 ---
 
-## 3. Verklighets-svar (30–60 sek)
-> *"Om Ingress ger 502 eller 503 är det första jag gör att köra `kubectl get endpoints <service-name>`. Om fältet är `<none>` beror det på en Selector Mismatch mellan `service.spec.selector` och `pod.metadata.labels`. Om endpoints finns men Ingress ändå ger 502 beror det nästan alltid på en portförväxling mellan Servicens `port` och `targetPort`. Servicens `port` är klusterporten (ofta 80), medan `targetPort` måste matcha applikationens faktiska `containerPort` (t.ex. 8080). Bäst praxis är att namnge portarna explicit med `name: http` både i containern och i servicen för att helt eliminera numeriska portkonflikter."*
+### Scenario 2: Selector Mismatch & Tomma Endpoints (`Endpoints: <none>` -> 503 Service Unavailable)
+
+#### 1. Problem: Vad kraschar eller varför bryr vi oss?
+Poddarna rullar för fullt och servicen är skapad, men externa anrop returnerar **`503 Service Temporarily Unavailable`**.
+
+Detta beror på en **Selector Mismatch**: Service-objektets `spec.selector` (t.ex. `app: payment-api-v2`) matchar inte exakt Poddens `metadata.labels` (t.ex. `app: payment-api`). Kubernetes Controller Manager kan därför inte koppla ihop servicen med några körande poddar. Servicens endpoint-lista är helt tom (**`Endpoints: <none>`**), och trafiken har ingenstans att ta vägen.
+
+#### 2. Keyword Bingo (Facit-lingo)
+* **Selector Mismatch:** När etiketter (labels) skiljer sig åt mellan Pod och Service, vilket bryter den logiska kopplingen.
+* **Endpoints / EndpointSlice:** Kubernetes-objektet som håller reda på de faktiska IP-adresserna till friska poddar.
+* **`Endpoints: <none>`:** Den avslöjande indikatorn på att servicen inte hittar några matchande poddar.
+* **503 Service Unavailable:** Ingress Controllern hittar noll tillgängliga endpoints i klustret att dirigera trafiken till.
+* **`kubectl get endpoints`:** Det absolut första felsökningskommandot när en service inte svarar.
+
+#### 3. Verklighets-svar (30–60 sek)
+> *"Om Ingress returnerar 503 är det första steget alltid att köra `kubectl get endpoints <service-name>`. Om fältet visar `<none>` beror det på en Selector Mismatch: servicens `spec.selector` matchar inte poddarnas labels i `metadata.labels`. Servicen är i praktiken död eftersom den saknar mål-IP:n. Vi åtgärdar det genom att synkronisera etiketterna, och kontrollerar sedan omedelbart med `kubectl get endpoints` att poddarnas IP-adresser dyker upp i listan."*
+
+**Labb & Kod:** [flawed-routing.yaml](file:///cloud-and-k8s/01-k8s-pod-to-ingress/flawed-routing.yaml) vs [fixed-routing.yaml](file:///cloud-and-k8s/01-k8s-pod-to-ingress/fixed-routing.yaml) & [verify-endpoints.sh](file:///cloud-and-k8s/01-k8s-pod-to-ingress/verify-endpoints.sh)
 
 ---
 
-## 4. Felsökningsguide (Kommandon & Verktyg)
+### Scenario 3: Named Ports & Ren Ingress-routing (End-to-End Arkitektur)
+
+#### 1. Problem: Vad kraschar eller varför bryr vi oss?
+I stora team ändras applikationers interna portar (t.ex. vid uppgradering från HTTP/1.1 till gRPC, eller när en container byter bas-port från 8080 till 3000). Om hårdkodade heltal (`8080`) sprids ut över Ingress-, Service- och Pod-manifest tvingas man uppdatera och synkronisera tiotals YAML-filer samtidigt, vilket ofta leder till produktionshaverier vid driftsättning.
+
+#### 2. Keyword Bingo (Facit-lingo)
+* **Named Ports:** Att namnge portar i containern (`name: http`) och använda strängnamnet i Servicen (`targetPort: http`).
+* **Ingress Controller (NGINX/Traefik):** Den externa reverse proxyn som läser Ingress-regler och dirigerar trafik direkt till poddarnas Endpoint-IP:n (kringgår ClusterIP kube-proxy för prestanda).
+* **ClusterIP:** Standardtypen för Kubernetes-services som ger en stabil intern IP-adress inom klustret.
+* **Declarative Port Decoupling:** Att frikoppla den externa servicens presentationsport från containerns interna lyssningsport.
+
+#### 3. Verklighets-svar (30–60 sek)
+> *"För att göra Kubernetes-arkitekturen underhållbar och motståndskraftig mot fel använder vi alltid Named Ports. I containern deklarerar vi `containerPort: 8080` under namnet `http`. I servicen sätter vi `port: 80` men `targetPort: http`. Om containerns interna port någonsin ändras behöver vi bara uppdatera Deployment-manifestet; alla Services och Ingress-regler förblir helt oförändrade eftersom de refererar till det stabila symboliska namnet `http`."*
+
+**Labb & Kod:** [fixed-routing.yaml](file:///cloud-and-k8s/01-k8s-pod-to-ingress/fixed-routing.yaml)
+
+---
+
+## 2. Felsökningsguide (Kommandon & Verktyg)
 
 ### A. Kontrollera Endpoints omedelbart
 ```bash
@@ -39,7 +81,7 @@ kubectl get pods --show-labels
 kubectl describe svc vault-backend-service | grep -E "(Selector|Endpoints|Port)"
 ```
 
-### B. Port-Forward direkt till Pod vs Service för att isolera
+### B. Port-Forward direkt till Pod vs Service för att isolera felet
 ```bash
 # Testa Podden direkt: Svarar appen på 8080?
 kubectl port-forward pod/<pod-name> 8080:8080
@@ -50,8 +92,17 @@ kubectl port-forward svc/vault-backend-service 8080:80
 
 ---
 
-## 5. Koden & Verifiering
+## 3. Koden & Verifiering
 
 * **The Flaw:** [flawed-routing.yaml](file:///cloud-and-k8s/01-k8s-pod-to-ingress/flawed-routing.yaml) – Selector mismatch (`app: payment-api-v2` mot `app: payment-api`) och felaktig `targetPort: 80`.
 * **The Fix:** [fixed-routing.yaml](file:///cloud-and-k8s/01-k8s-pod-to-ingress/fixed-routing.yaml) – Korrekt selector-koppling och namngiven `targetPort: http`.
 * **Verification Script:** [verify-endpoints.sh](file:///cloud-and-k8s/01-k8s-pod-to-ingress/verify-endpoints.sh) – Skript som validerar selector-överensstämmelse och endpoints.
+
+---
+
+## 4. Så här kör du testerna
+
+```bash
+cd cloud-and-k8s/01-k8s-pod-to-ingress
+./verify-endpoints.sh
+```
