@@ -1,5 +1,9 @@
 package com.vault.resilience;
 
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.retry.Retry;
+import io.github.resilience4j.retry.RetryRegistry;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -11,39 +15,46 @@ import org.springframework.web.bind.annotation.RestController;
 public class PaymentController {
 
     private final ResilientPaymentClient safeClient;
+    private final ResilientPaymentClient failingClient;
     private final UnprotectedPaymentClient unsafeClient;
 
-    public PaymentController() {
-        // Mock-gateway som lyckas
-        ResilientPaymentClient.RemoteGateway workingGateway = tx -> "SUCCESS: Payment " + tx + " processed";
-        this.safeClient = new ResilientPaymentClient(workingGateway);
+    public PaymentController(CircuitBreakerRegistry circuitBreakerRegistry, RetryRegistry retryRegistry) {
+        // Hämta Spring-hanterade CircuitBreaker & Retry registrerade i application.yml
+        CircuitBreaker cb = circuitBreakerRegistry.circuitBreaker("paymentService");
+        Retry retry = retryRegistry.retry("paymentServiceRetry");
 
-        // Oskyddad klient som kastar fel för att demonstrera felet
-        UnprotectedPaymentClient.RemoteGateway brokenGateway = tx -> {
-            throw new RuntimeException("503 Service Unavailable from 3rd-party bank");
-        };
-        this.unsafeClient = new UnprotectedPaymentClient(brokenGateway);
+        // Klient som lyckas (använder Spring-hanterade mätvärden)
+        this.safeClient = new ResilientPaymentClient(
+                tx -> "SUCCESS: Payment " + tx + " processed",
+                cb,
+                retry
+        );
+
+        // Klient som simulerar transient fel (delar samma Spring-hanterade CircuitBreaker för att öppna kretsen)
+        this.failingClient = new ResilientPaymentClient(
+                tx -> { throw new RuntimeException("Downstream Gateway Timeout"); },
+                cb,
+                retry
+        );
+
+        // Oskyddad klient utan Spring-skydd (The Flaw)
+        this.unsafeClient = new UnprotectedPaymentClient(
+                tx -> { throw new RuntimeException("503 Service Unavailable"); }
+        );
     }
 
     @GetMapping("/safe")
     public ResponseEntity<String> paySafe(@RequestParam(defaultValue = "TX-100") String tx) {
-        String result = safeClient.pay(tx);
-        return ResponseEntity.ok(result);
+        return ResponseEntity.ok(safeClient.pay(tx));
     }
 
     @GetMapping("/fail-fast")
     public ResponseEntity<String> simulateFailingPayment(@RequestParam(defaultValue = "TX-FAIL") String tx) {
-        // Simulera transient nedströmshaveri skyddat av Circuit Breaker
-        ResilientPaymentClient failingClient = new ResilientPaymentClient(transactionId -> {
-            throw new RuntimeException("Connection Timeout to downstream payment provider");
-        });
-        String result = failingClient.pay(tx);
-        return ResponseEntity.ok(result);
+        return ResponseEntity.ok(failingClient.pay(tx));
     }
 
     @GetMapping("/unsafe")
     public ResponseEntity<String> payUnsafe(@RequestParam(defaultValue = "TX-RAW") String tx) throws Exception {
-        // Kommer kasta exception direkt och blockera tråden vid timeouts
         return ResponseEntity.ok(unsafeClient.pay(tx));
     }
 }
