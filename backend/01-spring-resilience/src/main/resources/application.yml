@@ -22,6 +22,7 @@ resilience4j:
         minimumNumberOfCalls: 3
         failureRateThreshold: 50.0
         waitDurationInOpenState: 5000ms
+        automaticTransitionFromOpenToHalfOpenEnabled: true
         permittedNumberOfCallsInHalfOpenState: 2
   retry:
     instances:

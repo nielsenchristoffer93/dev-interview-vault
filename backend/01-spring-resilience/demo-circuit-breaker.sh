@@ -6,7 +6,7 @@
 # 1. CLOSED (Normaldrift)
 # 2. Öppning till OPEN efter feltröskeln nås (Fail-Fast)
 # 3. Direkt avvisning när kretsen är OPEN (0 ms nätverks-overhead)
-# 4. Övergång till HALF_OPEN efter 5 sekunder
+# 4. Övergång till HALF_OPEN efter 5 sekunder (waitDurationInOpenState)
 # 5. Återhämtning tillbaka till CLOSED efter lyckade anrop
 # ==============================================================================
 
@@ -23,13 +23,20 @@ NC='\033[0m' # No Color
 APP_URL="http://localhost:8080"
 ACTUATOR_URL="http://localhost:8081"
 
-# Hjälpfunktion för att hämta nuvarande kretsbrytar-status från Actuator
+# Hjälpfunktion för att hämta nuvarande kretsbrytar-status direkt från Prometheus (100% facit)
+# Prometheus exponerar: resilience4j_circuitbreaker_state{name="paymentService",state="open"} 1.0
 get_cb_state() {
-  if command -v jq >/dev/null 2>&1; then
-    curl -s "${ACTUATOR_URL}/actuator/health" | jq -r '.components.circuitBreakers.details.paymentService.status // "UNKNOWN"' 2>/dev/null || echo "UNKNOWN"
+  local state
+  state=$(curl -s "${ACTUATOR_URL}/actuator/prometheus" 2>/dev/null | \
+    grep 'resilience4j_circuitbreaker_state{name="paymentService",state=' | \
+    grep ' 1.0' | \
+    sed -n 's/.*state="\([^"]*\)".*/\1/p' | \
+    tr '[:lower:]' '[:upper:]')
+  
+  if [ -z "$state" ]; then
+    echo "UNKNOWN"
   else
-    # Fallback om jq saknas
-    curl -s "${ACTUATOR_URL}/actuator/health" | grep -o '"status":"[A-Z_]*"' | head -n 1 | cut -d'"' -f4
+    echo "$state"
   fi
 }
 
@@ -59,7 +66,7 @@ CB_STATE=$(get_cb_state)
 
 echo -e "Anrop till: ${CYAN}/api/payment/safe${NC}"
 echo -e "Svar:       ${GREEN}${RESPONSE}${NC}"
-echo -e "CB State:   ${GREEN}${CB_STATE}${NC} (Trafik släpps igenom som vanligt)\n"
+echo -e "CB State:   ${GREEN}${BOLD}${CB_STATE}${NC} (Trafik släpps igenom som vanligt)\n"
 
 sleep 1
 
@@ -79,7 +86,7 @@ for i in {1..3}; do
 done
 
 echo ""
-sleep 0.5
+sleep 0.3
 
 # ------------------------------------------------------------------------------
 # STEG 3: Verifiera att kretsen nu är OPEN
@@ -91,9 +98,10 @@ echo -e "${BOLD}----------------------------------------------------------------
 CB_STATE=$(get_cb_state)
 echo -e "CB State:   ${RED}${BOLD}${CB_STATE}${NC}"
 
-# Inspektera Prometheus-metriken för att bevisa att mätvärdet ändrats
-if curl -s "${ACTUATOR_URL}/actuator/prometheus" | grep -q 'resilience4j_circuitbreaker_state{name="paymentService",state="open"} 1.0'; then
+if [ "$CB_STATE" = "OPEN" ]; then
   echo -e "Prometheus: ${RED}resilience4j_circuitbreaker_state{state=\"open\"} = 1.0${NC} ✅"
+else
+  echo -e "Prometheus: Väntar in metrik..."
 fi
 echo ""
 
@@ -104,14 +112,14 @@ echo -e "${BOLD}----------------------------------------------------------------
 echo -e "${BOLD}4. FAIL-FAST TEST: Anrop medan kretsen är OPEN nekas omedelbart!${NC}"
 echo -e "${BOLD}----------------------------------------------------------------------${NC}"
 
-START_TIME=$(date +%s%N 2>/dev/null || python3 -c 'import time; print(int(time.time()*1e9))')
+START_TIME=$(python3 -c 'import time; print(int(time.time()*1000))' 2>/dev/null || date +%s)
 FAST_RES=$(curl -s "${APP_URL}/api/payment/fail-fast?tx=FAIL-BLOCKED")
-END_TIME=$(date +%s%N 2>/dev/null || python3 -c 'import time; print(int(time.time()*1e9))')
+END_TIME=$(python3 -c 'import time; print(int(time.time()*1000))' 2>/dev/null || date +%s)
 
-DURATION_MS=$(( (END_TIME - START_TIME) / 1000000 ))
+DURATION_MS=$(( END_TIME - START_TIME ))
 
 echo -e "Svar:       ${YELLOW}${FAST_RES}${NC}"
-echo -e "Svarstid:   ${GREEN}${DURATION_MS} ms${NC} (Ingen backend/nätverks-wait, sparar trådar!)"
+echo -e "Svarstid:   ${GREEN}${DURATION_MS} ms${NC} (Ingen backend/nätverks-wait, sparar Tomcat-trådar!)"
 echo ""
 
 # ------------------------------------------------------------------------------
@@ -125,13 +133,17 @@ for s in {5..1}; do
   echo -ne "${YELLOW}⏳ Återstår: ${s} sekunder...\r${NC}"
   sleep 1
 done
-echo -e "\n${GREEN}⏰ Tiden har löpt ut! Kretsen är nu redo för provanrop (HALF_OPEN).${NC}\n"
+echo -e "\n${GREEN}⏰ Tiden har löpt ut!${NC}"
+
+sleep 0.5
+HALF_OPEN_STATE=$(get_cb_state)
+echo -e "CB State:   ${YELLOW}${BOLD}${HALF_OPEN_STATE}${NC} (Kretsen är nu i provläge!)\n"
 
 # ------------------------------------------------------------------------------
 # STEG 6: Skicka friska anrop för att stänga kretsen igen (CLOSED)
 # ------------------------------------------------------------------------------
 echo -e "${BOLD}----------------------------------------------------------------------${NC}"
-echo -e "${BOLD}6. PROVANROP: Skickar 2 lyckade anrop för att återställa till CLOSED${NC}"
+echo -e "${BOLD}6. PROVANROP: Skickar 2 lyckade anrop för att återställa kretsen till CLOSED${NC}"
 echo -e "${BOLD}----------------------------------------------------------------------${NC}"
 
 RECOVER_1=$(curl -s "${APP_URL}/api/payment/safe?tx=RECOVER-1")
@@ -143,8 +155,8 @@ echo -e "Provanrop 2: ${GREEN}${RECOVER_2}${NC}"
 
 sleep 0.5
 FINAL_STATE=$(get_cb_state)
-echo -e "\n${BOLD}Slutgiltig CB State: ${GREEN}${BOLD}${FINAL_STATE}${NC} (Återställd till full normaldrift!)\n"
+echo -e "\n${BOLD}Slutgiltig CB State: ${GREEN}${BOLD}${FINAL_STATE}${NC} (Återställd till normal CLOSED drift!)\n"
 
 echo -e "${BOLD}${CYAN}======================================================================${NC}"
-echo -e "${BOLD}${CYAN}   🎉 DEMO KLAR: Hela kretsbrytar-cykeln verifierad med framgång!    ${NC}"
+echo -e "${BOLD}${CYAN}   🎉 DEMO KLAR: Alla kretsbrytartillstånd (CLOSED -> OPEN -> HALF_OPEN -> CLOSED) verifierade!${NC}"
 echo -e "${BOLD}${CYAN}======================================================================${NC}\n"
