@@ -121,4 +121,37 @@ cd backend/01-spring-resilience
 wsl bash -l -c "cd /mnt/c/Users/s103228/.repositories/dev-interview-vault/backend/01-spring-resilience && ./demo-circuit-breaker.sh"
 ```
 
+---
+
+## 7. Endpoint-anatomi: `/unsafe` vs `/fail-fast` vs `/safe` (The Flaw vs The Fix)
+
+Modulen exponerar tre endpoints för att tydligt demonstrera skillnaden mellan en oskyddad applikation och en resilient mikrotjänst under intervjusituationer:
+
+| Egenskap | `/api/payment/unsafe` *(The Flaw)* | `/api/payment/fail-fast` *(The Fix - Circuit Breaker)* | `/api/payment/safe` *(The Fix - Normal)* |
+| :--- | :--- | :--- | :--- |
+| **Klient i koden** | [UnprotectedPaymentClient](file:///backend/01-spring-resilience/src/main/java/com/vault/resilience/UnprotectedPaymentClient.java) | [ResilientPaymentClient](file:///backend/01-spring-resilience/src/main/java/com/vault/resilience/ResilientPaymentClient.java) | [ResilientPaymentClient](file:///backend/01-spring-resilience/src/main/java/com/vault/resilience/ResilientPaymentClient.java) |
+| **Kretsbrytare** | ❌ **Ingen** | ✅ **Aktiv** (`paymentService`) | ✅ **Aktiv** (`paymentService`) |
+| **Beteende vid fel** | Kastar ohanterat `RuntimeException` direkt upp i Tomcat -> **HTTP 500** | Fångas av kretsbrytaren -> **Graceful Fallback** | – |
+| **Beteende vid hög last / hängande tjänst** | Varje anrop låser en Tomcat-worker-tråd tills timeout (**Thread Pool Starvation**) | När kretsen är `OPEN` nekas anrop på under 1 ms (**Fail-Fast**) | Hanteras normalt |
+| **HTTP-respons** | `500 Internal Server Error` med fel-stacktrace | `200 OK` (`FALLBACK_QUEUED: ...`) | `200 OK` (`SUCCESS: ...`) |
+
+### Varför är detta en nyckelfråga på intervjuer?
+Tekniska intervjuare vill se att du förstår **Kaskadfel (Cascading Failures)**:
+> *"Om vår externa betalningsgateway hänger i 30 sekunder, vad händer med resten av vår applikation?"*
+
+1. **Utan skydd (`/unsafe`):**  
+   Om 200 användare försöker betala samtidigt låses alla 200 Tomcat-trådar (`http-nio-8080-exec-*`). Hela applikationen slutar svara på alla andra endpoints (även startsidan och `/actuator/health`). Kubernetes liveness probe misslyckas och startar om podden i en ond cirkel.
+   ```bash
+   # Testa /unsafe: Ger 500 Internal Server Error
+   curl -i "http://localhost:8080/api/payment/unsafe?tx=RAW-1"
+   ```
+
+2. **Med Resilience4j (`/fail-fast`):**  
+   Efter 3 misslyckade anrop bryts kretsen (`OPEN`). Resterande anrop nekas omedelbart på under 1 ms utan att belasta nätverket eller förbruka trådar, och användarna får ett säkert fallback-meddelande istället för ett systemhaveri.
+   ```bash
+   # Testa /fail-fast: Ger 200 OK med strukturerad Fallback
+   curl -i "http://localhost:8080/api/payment/fail-fast?tx=FAIL-1"
+   ```
+
+
 
