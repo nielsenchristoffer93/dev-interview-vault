@@ -261,11 +261,13 @@ echo -e "Kör manuellt när som helst med: ${CYAN}minikube start --driver=docker
 # Kontrollera om Minikube ska startas
 if [ "$WITH_MINIKUBE" = "true" ]; then
     echo -e "${CYAN}Startar Minikube automatiskt enligt flagga...${NC}"
-    minikube start --driver=docker
+    if docker info >/dev/null 2>&1; then
+        minikube start --driver=docker
+    else
+        sg docker -c "minikube start --driver=docker"
+    fi
     minikube addons enable ingress
     echo -e "${GREEN}✅ Minikube är igång och Ingress är aktiverat!${NC}"
-else
-    echo -e "${YELLOW}Hoppar över automatisk Minikube-start. (Kör med flaggan --with-minikube för att starta direkt).${NC}"
 fi
 
 # ------------------------------------------------------------------------------
@@ -276,10 +278,10 @@ echo -e "${BOLD}${GREEN}🎉 ALLA FÖRUTSÄTTNINGAR ÄR KLARA FÖR INTERVJURIGGE
 echo -e "${BOLD}${GREEN}======================================================================${NC}"
 echo -e "  🐘 PostgreSQL:     localhost:5432 (vault_user / vault_pass)"
 echo -e "  🔴 Redis:          localhost:6379"
-echo -e "  ☁️  LocalStack:     localhost:4566"
+echo -e "  ☁️ LocalStack:     localhost:4566"
 echo -e "  📈 Prometheus:     http://localhost:9090"
 echo -e "  📊 Grafana:        http://localhost:3000 (admin / admin)"
-echo -e "  ☸️  Kubernetes:     kubectl & minikube redo"
+echo -e "  ☸️ Kubernetes:     kubectl & minikube redo"
 echo -e "======================================================================"
 echo -e "Nästa steg:"
 echo -e "  • Kör alla backend-tester:  ${CYAN}cd backend && mvn test${NC}"
