@@ -135,22 +135,30 @@ fi
 # ------------------------------------------------------------------------------
 echo -e "\n${BOLD}[6/7] Startar Docker Compose lab-infrastruktur...${NC}"
 
-# Kontrollera om docker-kommandot fungerar (antingen direkt eller med sg docker)
-DOCKER_CMD="docker"
+# Identifiera vilket compose-kommando som är installerat (docker-compose vs docker compose)
+if command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE_CMD="docker-compose"
+elif docker compose version >/dev/null 2>&1; then
+    COMPOSE_CMD="docker compose"
+else
+    echo -e "${RED}❌ Varken 'docker-compose' eller 'docker compose' hittades.${NC}"
+    echo "Installera docker-compose eller docker-compose-plugin."
+    exit 1
+fi
+
+# Kontrollera om sudo behövs för docker-socket
 if ! docker info >/dev/null 2>&1; then
-    if groups | grep -q docker; then
-        DOCKER_CMD="sg docker -c"
-    else
-        echo -e "${YELLOW}⚠️ Kan inte ansluta till Docker utan sudo. Använder sudo för docker compose...${NC}"
-        DOCKER_CMD="sudo docker"
+    if ! groups | grep -q docker; then
+        echo -e "${YELLOW}⚠️ Användaren saknar åtkomst till /var/run/docker.sock. Kör med sudo...${NC}"
+        COMPOSE_CMD="sudo $COMPOSE_CMD"
     fi
 fi
 
-echo -e "   🚀 Startar bas-tjänster (PostgreSQL, Redis, LocalStack)..."
-$DOCKER_CMD compose -f compose/docker-compose.base.yml up -d
+echo -e "   🚀 Startar bas-tjänster (PostgreSQL, Redis, LocalStack) via '$COMPOSE_CMD'..."
+$COMPOSE_CMD -f compose/docker-compose.base.yml up -d
 
-echo -e "   🚀 Startar monitoring (Prometheus, Grafana)..."
-$DOCKER_CMD compose -f compose/docker-compose.monitoring.yml up -d
+echo -e "   🚀 Startar monitoring (Prometheus, Grafana) via '$COMPOSE_CMD'..."
+$COMPOSE_CMD -f compose/docker-compose.monitoring.yml up -d
 
 echo -e "${GREEN}✅ Alla Docker-containrar startade!${NC}"
 

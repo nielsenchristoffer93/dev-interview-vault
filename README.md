@@ -78,7 +78,7 @@ För att snabbt verifiera och installera alla förutsättningar (`curl`, `jq`, `
 
 ### 1. Bas-infrastruktur (PostgreSQL, Redis, LocalStack)
 ```bash
-docker compose -f compose/docker-compose.base.yml up -d
+docker-compose -f compose/docker-compose.base.yml up -d
 ```
 * **PostgreSQL:** `localhost:5432` (db: `interview_db`, user: `vault_user`, pass: `vault_pass`)
 * **Redis:** `localhost:6379`
@@ -86,7 +86,7 @@ docker compose -f compose/docker-compose.base.yml up -d
 
 ### 2. Monitoring (Prometheus & Grafana)
 ```bash
-docker compose -f compose/docker-compose.monitoring.yml up -d
+docker-compose -f compose/docker-compose.monitoring.yml up -d
 ```
 * **Prometheus:** `http://localhost:9090`
 * **Grafana:** `http://localhost:3000` (`admin` / `admin`)
