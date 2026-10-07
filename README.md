@@ -62,7 +62,26 @@ Varje labbmodul är strikt isolerad och byggd kring samma trestegsmönster:
 
 ## 🚀 Snabbstart & Lab-infrastruktur
 
-Projektet innehåller färdiga Docker Compose-filer för lokala beroenden och mätvärden.
+### ⚡ Allt-i-ett installationsskript (Rekommenderat)
+För att snabbt verifiera och installera alla förutsättningar (`curl`, `jq`, `kubectl`, `minikube`), fixa Docker-rättigheter och starta alla Compose-containrar i ett enda steg:
+
+* **I WSL / Linux (Rekommenderat):**
+  ```bash
+  ./setup-prerequisites.sh
+  
+  # Vill du även att Minikube startas automatiskt direkt:
+  ./setup-prerequisites.sh --with-minikube
+  ```
+  *(Eller från Windows PowerShell via WSL: `wsl ./setup-prerequisites.sh`)*
+
+* **I Windows PowerShell (Installerar via winget):**
+  ```powershell
+  .\setup-prerequisites.ps1
+  ```
+
+---
+
+### Manuell start av delar
 
 ### 1. Bas-infrastruktur (PostgreSQL, Redis, LocalStack)
 ```bash
