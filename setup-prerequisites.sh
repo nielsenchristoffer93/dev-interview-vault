@@ -211,6 +211,32 @@ else
     echo -e "${GREEN}✅ minikube är redan installerat.${NC}"
 fi
 
+# Installera k9s om det saknas
+if ! check_cmd k9s; then
+    echo -e "${YELLOW}⚠️ k9s saknas. Laddar ner och installerar senaste officiella deb-paketet...${NC}"
+    curl -sLO https://github.com/derailed/k9s/releases/latest/download/k9s_linux_amd64.deb
+    sudo apt install -y -qq ./k9s_linux_amd64.deb >/dev/null 2>&1 || sudo dpkg -i ./k9s_linux_amd64.deb >/dev/null 2>&1 || true
+    rm -f k9s_linux_amd64.deb
+
+    # Fallback till tar.gz om dpkg inte lyckades
+    if ! check_cmd k9s; then
+        echo -e "${YELLOW}   Försöker installera k9s via tarball...${NC}"
+        curl -sL https://github.com/derailed/k9s/releases/latest/download/k9s_Linux_amd64.tar.gz | tar -xz -C /tmp k9s 2>/dev/null || true
+        if [ -f /tmp/k9s ]; then
+            sudo install -m 0755 /tmp/k9s /usr/local/bin/k9s
+            rm -f /tmp/k9s
+        fi
+    fi
+
+    if check_cmd k9s; then
+        echo -e "${GREEN}✅ k9s installerat framgångsrikt i /usr/local/bin/k9s${NC}"
+    else
+        echo -e "${YELLOW}⚠️ Kunde inte installera k9s automatiskt. Du kan installera manuellt vid behov.${NC}"
+    fi
+else
+    echo -e "${GREEN}✅ k9s är redan installerat.${NC}"
+fi
+
 # ------------------------------------------------------------------------------
 # 6. Starta Docker Compose Infrastruktur
 # ------------------------------------------------------------------------------
@@ -281,10 +307,11 @@ echo -e "  🔴 Redis:          localhost:6379"
 echo -e "  ☁️ LocalStack:     localhost:4566"
 echo -e "  📈 Prometheus:     http://localhost:9090"
 echo -e "  📊 Grafana:        http://localhost:3000 (admin / admin)"
-echo -e "  ☸️ Kubernetes:     kubectl & minikube redo"
+echo -e "  ☸️  Kubernetes:     kubectl, minikube & k9s redo"
 echo -e "======================================================================"
 echo -e "Nästa steg:"
-echo -e "  • Kör alla backend-tester:  ${CYAN}
+echo -e "  • Kör alla backend-tester:  ${CYAN}cd backend && mvn test${NC}"
 echo -e "  • Starta resilience-appen:  ${CYAN}cd backend/01-spring-resilience && mvn spring-boot:run${NC}"
 echo -e "  • Starta Minikube vid behov:${CYAN}minikube start --driver=docker && minikube addons enable ingress${NC}"
+echo -e "  • Inspektera K8s visuellt:  ${CYAN}k9s${NC}"
 echo -e "======================================================================\n"

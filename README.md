@@ -63,7 +63,7 @@ Varje labbmodul är strikt isolerad och byggd kring samma trestegsmönster:
 ## 🚀 Snabbstart & Lab-infrastruktur
 
 ### ⚡ Allt-i-ett installationsskript (Linux / Bash)
-För att snabbt verifiera och installera alla förutsättningar (`curl`, `jq`, `kubectl`, `minikube`), fixa Docker-rättigheter och starta alla Compose-containrar i ett enda steg:
+För att snabbt verifiera och installera alla förutsättningar (`curl`, `jq`, `kubectl`, `minikube`, `k9s`), fixa Docker-rättigheter och starta alla Compose-containrar i ett enda steg:
 
 ```bash
 ./setup-prerequisites.sh
