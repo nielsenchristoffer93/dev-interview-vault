@@ -35,9 +35,19 @@ git grep -E "private [A-Za-z0-9<>]+ [a-z0-9]+ = " src/main/java/
 ```
 
 ### B. Stress-testa med Concurrency Tools (JMeter / k6 / Hey)
-Kör 50 parallella trådar och verifiera om slutsumman stämmer med antalet anrop:
+Kör 50 parallella anrop och verifiera om slutsumman stämmer med antalet anrop:
 ```bash
-hey -n 1000 -c 50 http://localhost:8080/api/orders/increment
+# 1. Stressa det oskyddade singleton-fältet (tappar uppdateringar!):
+hey -n 1000 -c 50 http://localhost:8080/api/orders/unsafe/increment
+
+# 2. Kontrollera räknaren:
+curl http://localhost:8080/api/orders/unsafe/count
+# Utfall: Räknaren visar ~850-950 istället för 1000 (Lost Updates)!
+
+# 3. Stressa den atomära lösningen (håller 100%):
+hey -n 1000 -c 50 http://localhost:8080/api/orders/safe/increment
+curl http://localhost:8080/api/orders/safe/count
+# Utfall: Räknaren visar exakt 1000!
 ```
 
 ---
@@ -46,4 +56,40 @@ hey -n 1000 -c 50 http://localhost:8080/api/orders/increment
 
 * **The Flaw:** [UnsafeOrderService.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/UnsafeOrderService.java) – Använder primitiv `int` i singleton-läge; tappar räkningar under parallell last.
 * **The Fix:** [SafeOrderService.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/SafeOrderService.java) – Använder `AtomicLong` med lock-free CAS-principer.
-* **Verification Test:** [ConcurrencyVerificationTest.java](file:///backend/02-concurrency-threads/src/test/java/com/vault/concurrency/ConcurrencyVerificationTest.java) – Kör 100 parallella trådar med `CountDownLatch` och demonstrerar diskrepansen.
+* **REST Controller:** [OrderController.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/OrderController.java) – Exponerar HTTP-endpoints för benchmarking.
+* **Spring Boot Main:** [ConcurrencyApplication.java](file:///backend/02-concurrency-threads/src/main/java/com/vault/concurrency/ConcurrencyApplication.java) – Startar applikationen på port 8080.
+* **Verification Test:** [ConcurrencyVerificationTest.java](file:///backend/02-concurrency-threads/src/test/java/com/vault/concurrency/ConcurrencyVerificationTest.java) – Kör 50 parallella trådar med `CountDownLatch` och demonstrerar diskrepansen direkt i JVM:en.
+
+---
+
+## 6. Så här kör du testerna och live-demonstrationen
+
+### A. Kör enhetstesterna i JVM:en (Inget behov av server)
+Testet körs omedelbart med Maven och demonstrerar race condition med trådar i minnet:
+```bash
+cd backend/02-concurrency-threads
+mvn clean test
+```
+* **Vad testet bevisar:**  
+  Utskriften visar hur `UnsafeOrderService` tappar tusentals uppdateringar (t.ex. räknar 32 639 av 50 000), medan `SafeOrderService` träffar exakt 50 000.
+
+---
+
+### B. Starta Spring Boot-servern lokalt
+För att kunna stress-testa över faktiska HTTP-requests startar du servern:
+```bash
+cd backend/02-concurrency-threads
+mvn spring-boot:run
+```
+Servern startar på `http://localhost:8080`.
+
+---
+
+### C. Kör det färdiga demoskriptet (`demo-race-condition.sh`)
+I en ny terminalkör du det interaktiva skriptet:
+```bash
+cd backend/02-concurrency-threads
+./demo-race-condition.sh
+```
+Skriptet skickar 1 000 samtidiga anrop mot `/unsafe` respektive `/safe` och skriver ut exakt hur många transaktioner som förlorades i det oskyddade läget kontra den atomära lösningen!
+

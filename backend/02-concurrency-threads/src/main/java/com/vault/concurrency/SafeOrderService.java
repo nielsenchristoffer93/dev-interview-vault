@@ -1,5 +1,7 @@
 package com.vault.concurrency;
 
+import org.springframework.stereotype.Service;
+
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -8,6 +10,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * 2. Inga lås (lock-free) vilket minimerar trådblockering och kontextväxlingar.
  * 3. Garanterar minnessynlighet (memory visibility) i enlighet med Java Memory Model (Happens-Before).
  */
+@Service
 public class SafeOrderService {
 
     private final AtomicLong orderCount = new AtomicLong(0);
@@ -19,5 +22,9 @@ public class SafeOrderService {
 
     public long getOrderCount() {
         return orderCount.get();
+    }
+
+    public void reset() {
+        this.orderCount.set(0);
     }
 }
