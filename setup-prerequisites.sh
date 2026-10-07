@@ -30,9 +30,90 @@ echo -e "${BOLD}${CYAN}=========================================================
 echo -e "${BOLD}${CYAN}🛠️  DEV-INTERVIEW-VAULT: Setup & Verifiering av Förutsättningar${NC}"
 echo -e "${BOLD}${CYAN}======================================================================${NC}"
 
+# Kontrollera kommandoradsflaggor
+AUTO_STOP=false
+WITH_MINIKUBE=false
+for arg in "$@"; do
+    case "$arg" in
+        --auto-stop|-y)
+            AUTO_STOP=true
+            ;;
+        --with-minikube)
+            WITH_MINIKUBE=true
+            ;;
+    esac
+done
+
 # Hjälpfunktion för att kontrollera om ett kommando finns
 check_cmd() {
     command -v "$1" >/dev/null 2>&1
+}
+
+# Hjälpfunktion för att kontrollera och frigöra portar
+check_and_free_port() {
+    local port="$1"
+    local service_desc="$2"
+    local expected_container_prefix="$3"
+
+    # Kontrollera om en Docker-container publicerar porten
+    local conflicting_containers
+    conflicting_containers=$(docker ps --filter "publish=${port}" --format "{{.Names}}" 2>/dev/null || true)
+
+    if [ -n "$conflicting_containers" ]; then
+        for container in $conflicting_containers; do
+            # Om det redan är vår egen container för labbet, är allt lugnt
+            if [[ "$container" == "$expected_container_prefix"* ]]; then
+                continue
+            fi
+
+            echo -e "${YELLOW}⚠️  Port ${port} (${service_desc}) är upptagen av Docker-containern '${container}'!${NC}"
+            if [ "$AUTO_STOP" = "true" ]; then
+                echo -e "${CYAN}   Stoppar containern '${container}' automatiskt...${NC}"
+                docker stop "$container" >/dev/null 2>&1 || sudo docker stop "$container" >/dev/null 2>&1
+                echo -e "${GREEN}✅ Stoppade '${container}'. Port ${port} är nu frigjord.${NC}"
+            else
+                read -r -p "   Vill du stoppa containern '${container}' för att frigöra port ${port}? [y/N]: " answer < /dev/tty || answer="n"
+                if [[ "$answer" =~ ^[Yy]$ ]]; then
+                    echo -e "${CYAN}   Stoppar containern '${container}'...${NC}"
+                    docker stop "$container" >/dev/null 2>&1 || sudo docker stop "$container" >/dev/null 2>&1
+                    echo -e "${GREEN}✅ Stoppade '${container}'. Port ${port} är nu frigjord.${NC}"
+                else
+                    echo -e "${YELLOW}   ⚠️ Hoppar över att stoppa '${container}'. Obs: ${service_desc} kommer troligen att krascha vid port-bindning!${NC}"
+                fi
+            fi
+        done
+        return
+    fi
+
+    # Kontrollera om en lokal process utanför Docker lyssnar på porten
+    if timeout 1 bash -c "cat < /dev/null > /dev/tcp/127.0.0.1/${port}" 2>/dev/null; then
+        local pid=""
+        if check_cmd lsof; then
+            pid=$(lsof -ti :"${port}" 2>/dev/null | head -n 1 || true)
+        fi
+        
+        local proc_name="Okänd process"
+        if [ -n "$pid" ]; then
+            proc_name=$(ps -p "$pid" -o comm= 2>/dev/null || echo "PID $pid")
+        fi
+
+        echo -e "${YELLOW}⚠️  Port ${port} (${service_desc}) är upptagen av lokal process: ${proc_name} ${pid:+(PID: $pid)}!${NC}"
+        if [ -n "$pid" ]; then
+            if [ "$AUTO_STOP" = "true" ]; then
+                echo -e "${CYAN}   Avslutar process ${pid}...${NC}"
+                kill -15 "$pid" 2>/dev/null || sudo kill -15 "$pid" 2>/dev/null || true
+                echo -e "${GREEN}✅ Avslutade process ${pid}.${NC}"
+            else
+                read -r -p "   Vill du avsluta processen ${proc_name} (PID: ${pid})? [y/N]: " answer < /dev/tty || answer="n"
+                if [[ "$answer" =~ ^[Yy]$ ]]; then
+                    kill -15 "$pid" 2>/dev/null || sudo kill -15 "$pid" 2>/dev/null || true
+                    echo -e "${GREEN}✅ Avslutade process ${pid}.${NC}"
+                else
+                    echo -e "${YELLOW}   ⚠️ Hoppar över att avsluta processen.${NC}"
+                fi
+            fi
+        fi
+    fi
 }
 
 # ------------------------------------------------------------------------------
@@ -154,6 +235,14 @@ if ! docker info >/dev/null 2>&1; then
     fi
 fi
 
+# Kontrollera potentiella portkonflikter och erbjud användaren att stoppa dem
+echo -e "   🔍 Kontrollerar om nödvändiga portar är lediga..."
+check_and_free_port 5432 "PostgreSQL" "vault-postgres"
+check_and_free_port 6379 "Redis" "vault-redis"
+check_and_free_port 4566 "LocalStack" "vault-localstack"
+check_and_free_port 9090 "Prometheus" "vault-prometheus"
+check_and_free_port 3000 "Grafana" "vault-grafana"
+
 echo -e "   🚀 Startar bas-tjänster (PostgreSQL, Redis, LocalStack) via '$COMPOSE_CMD'..."
 $COMPOSE_CMD -f compose/docker-compose.base.yml up -d
 
@@ -169,8 +258,8 @@ echo -e "\n${BOLD}[7/7] Kubernetes-kluster (Minikube)...${NC}"
 echo -e "Vill du starta Minikube nu med Ingress aktiverat? (tar ~1-2 minuter)"
 echo -e "Kör manuellt när som helst med: ${CYAN}minikube start --driver=docker && minikube addons enable ingress${NC}"
 
-# Kontrollera om skriptet körs med argumentet --with-minikube
-if [[ "$*" == *"--with-minikube"* ]]; then
+# Kontrollera om Minikube ska startas
+if [ "$WITH_MINIKUBE" = "true" ]; then
     echo -e "${CYAN}Startar Minikube automatiskt enligt flagga...${NC}"
     minikube start --driver=docker
     minikube addons enable ingress

@@ -68,8 +68,9 @@ För att snabbt verifiera och installera alla förutsättningar (`curl`, `jq`, `
 ```bash
 ./setup-prerequisites.sh
 
-# Vill du även att Minikube startas automatiskt direkt:
-./setup-prerequisites.sh --with-minikube
+# Valfria flaggor:
+# --auto-stop (eller -y) : Stoppar automatiskt motstridiga containrar (t.ex. annan Postgres på 5432) utan att fråga
+# --with-minikube        : Startar även Minikube automatiskt med Ingress
 ```
 
 ---
