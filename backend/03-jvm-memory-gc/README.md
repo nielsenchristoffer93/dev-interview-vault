@@ -1,30 +1,100 @@
 # 🧠 03-jvm-memory-gc: OOM, Heap Dumps, GC-pauser & K8s Limits
 
-## 1. Problem: Vad kraschar eller varför bryr vi oss?
-I Kubernetes dör containrar plötsligt med **Exit Code 137 (OOMKilled)** utan att Spring Boot hinner skriva ett enda felmeddelande i loggarna. Detta beror ofta på två distinkta orsaker:
-1. **JVM Heap Minnesläcka:** Statiska samlingar eller event listeners som aldrig rensas fyller Young & Old Generation. Garbage Collector kör frenetiskt och skapar långa **Stop-The-World (STW)** pauser tills appen kraschar med `java.lang.OutOfMemoryError: Java heap space`.
-2. **K8s Container vs JVM Memory Discrepancy:** JVM allokerar inte bara heap, utan även **Off-Heap/Native Memory** (Metaspace, trådstackar med 1MB per tråd, Direct ByteBuffers, JIT-kompilering). Om K8s limit är satt till `1Gi` och JVM startas med `-Xmx1g` kommer Linux cgroups OOM-killer skjuta ner processen med `SIGKILL (137)`.
+Denna modul täcker 4 fundamentala minnes- och Garbage Collection-utmaningar i molnbaserade JVM-applikationer. Varje scenario presenterar problemet (vad som kraschar och varför vi bryr oss), dess specifika **Keyword Bingo** (facit-lingo), samt ett **Verklighets-svar (30–60 sek)** skräddarsytt för tekniska intervjuer.
 
 ---
 
-## 2. Keyword Bingo (Facit-lingo)
-* **Exit Code 137 / OOMKilled:** Linux kernel cgroups avslutar processen när cgroup `memory.max` överskrids.
+## 1. Koncept & Scenarier
+
+### Scenario 1: JVM Heap Minnesläckor & Dominatorträd i MAT
+
+#### 1. Problem: Vad kraschar eller varför bryr vi oss?
+I Java uppstår minnesläckor inte genom oallokerat C-minne, utan genom **oavsiktliga starka referenser** som hålls vid liv av en aktiv *GC Root* (t.ex. statiska listor, applikationskontexter, glömda event listeners eller cacher utan storlekstak).
+
+Allteftersom nya objekt skapas fylls Young och Old Generation. Garbage Collector kämpar förgäves för att rensa objekten tills JVM:en kraschar med `java.lang.OutOfMemoryError: Java heap space`.
+
+#### 2. Keyword Bingo (Facit-lingo)
+* **Heap Memory Leak:** När oanvända objekt inte kan återvinnas av Garbage Collector eftersom starka referenser kvarstår från en aktiv GC Root.
+* **Shallow Size vs Retained Size:**
+  * *Shallow Size:* Minnet som själva objektet upptar i sig.
+  * *Retained Size:* Det totala minnet som skulle frigöras om detta objekt och alla dess underliggande referenser togs bort (nyckeln för att hitta roten till läckan!).
+* **Dominator Tree:** En analysgraf i Eclipse MAT som rangordnar objekt efter hur mycket minne de dominerar och förhindrar från att samlas in.
+* **Heap Dump (`.hprof`):** En komplett binär ögonblicksbild av alla allokerade objekt och referensträd vid kraschögonblicket.
+* **Bounded LRU Cache:** Lösningen på obegränsade minnessamlingar – en cache som sätter ett absolut tak och evicerar äldsta poster vid full kapacitet.
+
+#### 3. Verklighets-svar (30–60 sek)
+> *"En minnesläcka i Java innebär att oanvända objekt inte kan Garbage Collectas för att de fortfarande hålls av en aktiv referens – oftast en statisk samling eller en cache utan eviction policy. För att identifiera läckan kör vi alltid med flaggan `-XX:+HeapDumpOnOutOfMemoryError`. Vid en krasch öppnar vi `.hprof`-filen i Eclipse Memory Analyzer (MAT) och inspekterar Dominator Tree. Vi tittar inte på Shallow Size utan på Retained Size för att omedelbart identifiera vilket specifikt objekt eller array som håller fast merparten av heapen."*
+
+**Labb & Kod:** [MemoryLeakSimulation.java](file:///backend/03-jvm-memory-gc/src/main/java/com/vault/memory/MemoryLeakSimulation.java) vs [BoundedMemoryCache.java](file:///backend/03-jvm-memory-gc/src/main/java/com/vault/memory/BoundedMemoryCache.java)
+
+---
+
+### Scenario 2: K8s cgroups OOMKilled (Exit Code 137) vs Off-Heap / Native Memory
+
+#### 1. Problem: Vad kraschar eller varför bryr vi oss?
+I Kubernetes dör containrar plötsligt med status **`OOMKilled`** och **`Exit Code: 137`** utan att Spring Boot hinner skriva ett enda felmeddelande eller stacktrace i loggarna.
+
+Detta beror ofta på att utvecklare sätter Kubernetes container memory limit till t.ex. `1Gi` och startar JVM med `-Xmx1g`. Men JVM allokerar inte bara heap: den allokerar även **Off-Heap / Native Memory** (Metaspace för klassmetadata, trådstackar med ~1MB per tråd, Direct ByteBuffers för nätverks-I/O och JIT-kompilering). När hela OS-processens minne passerar cgroup-gränsen på 1Gi skickar Linux kernel cgroups ett skoningslöst `SIGKILL (137)`.
+
+#### 2. Keyword Bingo (Facit-lingo)
+* **Exit Code 137 / OOMKilled:** Linux kernel cgroups avslutar containern omedelbart med `SIGKILL` när cgroup `memory.max` överskrids.
+* **Off-Heap / Native Memory:** Minne som JVM allokerar utanför Java-heapen.
+* **Metaspace:** Native memory-området där klassmetadata lagras (ersatte PermGen i Java 8).
+* **Thread Stack Size (`-Xss`):** Minnet reserverat för metodanrop och lokala variabler per tråd (default ~1MB per OS-tråd).
+* **`-XX:MaxRAMPercentage=75.0`:** Det rekommenderade sättet att konfigurera containrar. JVM läser cgroup-gränsen dynamiskt och sparar 25% av minnet till Metaspace, trådstackar och OS.
+
+#### 3. Verklighets-svar (30–60 sek)
+> *"Om en podd dör med Exit Code 137 har Linux OOM-killer skjutit ner den för att cgroup-gränsen överskreds. Ett vanligt misstag är att sätta container limit till 1GB och `-Xmx1g`. JVM:ens totala minne är Heap PLUS Metaspace, trådstackar (1MB per tråd) och native buffers. Lösningen är att undvika hårdkodade `-Xmx` och istället använda container-awareness via `-XX:MaxRAMPercentage=75.0`. Då reserveras 25% av containergränsen till off-heap och OS, vilket förhindrar att Linux cgroups dödar processen."*
+
+**Labb & Kod:** [Dockerfile](file:///backend/03-jvm-memory-gc/Dockerfile) & [k8s-oom-demo.yaml](file:///backend/03-jvm-memory-gc/k8s-oom-demo.yaml)
+
+---
+
+### Scenario 3: GC Thrashing & Stop-The-World (STW) Pauser
+
+#### 1. Problem: Vad kraschar eller varför bryr vi oss?
+Innan applikationen kraschar med OOM inträffar ofta en dramatisk prestandaförsämring: Garbage Collector kör oavbrutet och försöker panikartat städa minnet.
+
+Eftersom minnet är fullt med levande objekt lyckas inte GC:n frigöra något. Alla applikationstrådar pausas upprepade gånger (**Stop-The-World**), svarstider spikar till tiotals sekunder, och till slut kastar JVM felet:
+`java.lang.OutOfMemoryError: GC overhead limit exceeded` (när mer än 98% av CPU-tiden går till GC men mindre än 2% minne frigörs).
+
+#### 2. Keyword Bingo (Facit-lingo)
 * **Stop-The-World (STW):** Pauser där alla applikationstrådar fryses medan GC flyttar och markerar objekt.
-* **GC Thrashing / Overhead Limit Exceeded:** När JVM spenderar >98% av tiden på GC men återvinner <2% av minnet (`java.lang.OutOfMemoryError: GC overhead limit exceeded`).
-* **`-XX:MaxRAMPercentage=75.0`:** Det rekommenderade sättet att konfigurera JVM i containrar så att 25% sparas till OS-buffers, trådstackar och Metaspace.
-* **Off-Heap / Metaspace:** Området där klassmetadata lagras. Till skillnad från gamla PermGen allokeras Metaspace i native memory.
-* **Heap Dump (`.hprof`):** En ögonblicksbild av alla objekt i minnet vid kraschögonblicket.
-* **The "Dead Pod" Exec Limitation:** Begränsningen att `kubectl exec` och `kubectl cp` fallerar med `cannot exec into a container in a completed pod` om processen dött.
-* **Automated Crash Dump Pipeline:** Automatisk export av kraschdata direkt till S3/Blob Storage vid JVM-avslut istället för manuell extrahering.
+* **GC Thrashing:** Tillstånd där JVM spenderar nästan 100% av all CPU på att köra Garbage Collection utan framgång.
+* **`GC overhead limit exceeded`:** JVM:s inbyggda skyddsmekanism som kraschar appen för att förhindra att maskinen fastnar i en evig STW-frysning.
+* **P99 / Tail Latency Spikes:** Extrema fördröjningar i svarstider orsakade av STW-pauser.
+* **Generational Garbage Collection:** Uppdelningen i Young Generation (korta livslängder) och Old Generation (långlivade objekt).
+
+#### 3. Verklighets-svar (30–60 sek)
+> *"När en JVM närmar sig sitt minnestak inträffar GC Thrashing. Garbage Collectorn tvingas köra Full GC upprepade gånger, vilket skapar långa Stop-The-World-pauser där alla anrop hänger och P99-latensen exploderar. Om JVM:en märker att den spenderar över 98% av tiden på GC men återvinner mindre än 2% av heapen kastar den `GC overhead limit exceeded`. Vi övervakar detta via JVM-metriker i Prometheus för att larma på GC-paustider långt innan kraschen sker."*
+
+**Labb & Kod:** [demo-local-oom.sh](file:///backend/03-jvm-memory-gc/demo-local-oom.sh)
 
 ---
 
-## 3. Verklighets-svar (30–60 sek)
-> *"Om en podd dör med Exit Code 137 har Linux OOM-killer skjutit ner den för att cgroup-gränsen överskreds. Ett vanligt misstag är att sätta container memory limit till 1GB och `-Xmx1g`. JVM:ens totala minne är Heap PLUS Metaspace, trådstackar (1MB per tråd) och native buffers. Lösningen är att använda container-awareness via `-XX:MaxRAMPercentage=75.0` och alltid slå på `-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/dumps/oom.hprof`. Då får vi en heap dump vid minnesläckor, och vi kan analysera dominatorträdet i Eclipse Memory Analyzer (MAT) för att hitta exakt vilket objekt eller cache som håller referenserna."*
+### Scenario 4: "The Dead Pod Dilemma" & Automatiserad Crash Dump Pipeline
+
+#### 1. Problem: Vad kraschar eller varför bryr vi oss?
+När en container dör i Kubernetes på grund av OOM är det för sent att köra `kubectl exec` eller `kubectl cp`. Kubelet vägrar köra kommandon med felet:
+`error: cannot exec into a container in a completed pod; current phase is Failed`.
+
+Tekniker står maktlösa utan tillgång till kraschdumpen eftersom containerns lokala filsystem inte längre är åtkomligt.
+
+#### 2. Keyword Bingo (Facit-lingo)
+* **The Dead Pod Limitation:** Kubelets princip att `exec` och `cp` enbart är tillåtna på containrar i tillståndet `Running`.
+* **Automated Crash Dump Pipeline:** Automatisk strömning av dumpen direkt till Object Storage (S3 / GCS / Azure Blob) vid krasch.
+* **PersistentVolumeClaim (PVC):** Montering av delad nätverkslagring på `/dumps` så att data överlever poddens död.
+* **Sidecar Container:** En hjälpcontainer som övervakar dump-volymen och larmar/laddar upp filen.
+* **Ephemeral Debug Containers:** Kubernetes-funktion (`kubectl debug`) för att fästa en felsökningscontainer vid noder eller poddar.
+
+#### 3. Verklighets-svar (30–60 sek)
+> *"I Kubernetes kan du inte köra `kubectl cp` på en död podd eftersom `cp` kräver en körande container och `tar`-binären. I produktion förlitar vi oss därför aldrig på manuella kommandon. Istället bygger vi en automatiserad dump-pipeline: vi sätter `-XX:+HeapDumpOnOutOfMemoryError` till en volym, och ett startskript eller en sidecar-container laddar omedelbart upp `.hprof`-filen till en S3-bucket så fort processen avslutas. Podden kan då starta om direkt medan teamet analyserar dumpen från S3."*
+
+**Labb & Kod:** [Dockerfile](file:///backend/03-jvm-memory-gc/Dockerfile) & Avsnitt 7 nedan
 
 ---
 
-## 4. Felsökningsguide (Kommandon & Verktyg)
+## 2. Felsökningsguide (Kommandon & Verktyg)
 
 ### A. Diagnostisera OOMKilled i Kubernetes
 ```bash
@@ -61,7 +131,7 @@ ENTRYPOINT ["java", \
 
 ---
 
-## 5. Koden & Verifiering
+## 3. Koden & Verifiering
 
 * **The Flaw:** [MemoryLeakSimulation.java](file:///backend/03-jvm-memory-gc/src/main/java/com/vault/memory/MemoryLeakSimulation.java) – Obegränsad statisk cache som samlar data utan TTL eller storleksgräns.
 * **The Fix:** [BoundedMemoryCache.java](file:///backend/03-jvm-memory-gc/src/main/java/com/vault/memory/BoundedMemoryCache.java) – Bounded LRU-cache som evicerar äldsta poster och sätter tak för minnesanvändning.
@@ -69,9 +139,7 @@ ENTRYPOINT ["java", \
 
 ---
 
-## 6. Så här testar du (Ingen Kubernetes krävs!)
-
-Du behöver **inget Kubernetes-kluster** för att köra och testa koden i denna modul. Kubernetes-avsnitten ovan beskriver hur du felsöker och resonerar kring detta i **produktionsmiljö och på tekniska intervjuer**.
+## 4. Så här testar du lokalt (Ingen Kubernetes krävs)
 
 Hela modulen kan köras och verifieras lokalt på din maskin:
 
@@ -84,12 +152,8 @@ mvn clean test
   * `testTheFlaw_unboundedGrowth`: Visar hur objekt ackumuleras i minnet och aldrig släpps för GC.
   * `testTheFix_boundedCacheEvictsEldest`: Visar hur LRU-cachen klipper referenserna till gamla poster så att minnesanvändningen hålls konstant under taket (50 poster).
 
----
-
 ### B. Framkalla en riktig OutOfMemoryError & skapa en Heap Dump lokalt
-Vill du prova hur en riktig `OutOfMemoryError` ser ut och se en `.hprof`-fil skapas på disken lokalt utan Kubernetes?
-
-Kör det färdiga skriptet:
+Kör det färdiga demonstrationsskriptet:
 ```bash
 cd backend/03-jvm-memory-gc
 ./demo-local-oom.sh
@@ -99,20 +163,14 @@ Skriptet startar [MemoryLeakSimulation](file:///backend/03-jvm-memory-gc/src/mai
 
 ---
 
-## 7. Så här testar du i Kubernetes (Minikube, Kind eller Docker Desktop)
+## 5. Så här testar du i Kubernetes (Minikube / Kind / Docker Desktop)
 
-Om du har ett lokalt Kubernetes-kluster (t.ex. Minikube, Kind eller Docker Desktop K8s) och faktiskt vill testa `kubectl`-kommandona i praktiken, finns en färdig [Dockerfile](file:///backend/03-jvm-memory-gc/Dockerfile) och manifestet [k8s-oom-demo.yaml](file:///backend/03-jvm-memory-gc/k8s-oom-demo.yaml).
+Om du har ett lokalt Kubernetes-kluster finns en färdig [Dockerfile](file:///backend/03-jvm-memory-gc/Dockerfile) och manifestet [k8s-oom-demo.yaml](file:///backend/03-jvm-memory-gc/k8s-oom-demo.yaml).
 
 ### Steg 1: Bygg container-imagen
-Stå i `backend/03-jvm-memory-gc`:
 ```bash
+cd backend/03-jvm-memory-gc
 docker build -t jvm-memory-leak:1.0 .
-
-# Om du använder Kind, ladda in imagen i klustret:
-# kind load docker-image jvm-memory-leak:1.0
-
-# Om du använder Minikube, kör detta innan du bygger så imagen hamnar i minikubes docker:
-# eval $(minikube docker-env)
 ```
 
 ### Steg 2: Applicera Kubernetes-manifesten
@@ -124,63 +182,19 @@ Detta startar två poddar med olika konfiguration:
 1. **`oomkilled-pod` (The Flaw):** Har container limit på 64Mi men JVM startas med `-Xmx128m`.
 2. **`heapdump-pod` (The Fix):** Har container limit på 128Mi med `-XX:MaxRAMPercentage=50.0` och monterad volym för dumpen.
 
----
-
 ### Steg 3: Verifiera OOMKilled & Exit Code 137 på `oomkilled-pod`
-Efter några sekunder när minnet överskrider 64Mi skickar Linux cgroups `SIGKILL (137)`:
 ```bash
 kubectl get pod oomkilled-pod
-```
-Output visar `OOMKilled` eller `Error`:
-```
-NAME             READY   STATUS      RESTARTS   AGE
-oomkilled-pod    0/1     OOMKilled   0          15s
-```
-
-Inspektera poddens termineringsorsak:
-```bash
 kubectl describe pod oomkilled-pod | grep -E "(State|Reason|Exit Code)"
 ```
-Förväntat utfall i K8s:
-```text
-State:          Terminated
-  Reason:       OOMKilled
-  Exit Code:    137
-```
-> **Slutsats:** Inga Java-loggar eller stacktraces hinner skrivas. Processen terminerades brutalt av Linux-kärnan.
-
----
+Förväntat utfall: `Exit Code: 137` / `Reason: OOMKilled`.
 
 ### Steg 4: Verifiera och extrahera Heap Dump från `heapdump-pod`
-I `heapdump-pod` klipper JVM:en minnet internt (`OutOfMemoryError`) innan Linux cgroups slår till:
 ```bash
-# Se loggen där JVM själv dumpar minnet:
 kubectl logs heapdump-pod
-```
-Output:
-```text
-Startar JVM med begränsad heap och automatisk Heap Dump...
-java.lang.OutOfMemoryError: Java heap space
-Dumping heap to /dumps/oom.hprof ...
-Heap dump file created [...]
-✅ OOM inträffade och dump sparades i /dumps/oom.hprof.
-⏳ Håller containern vid liv så att 'kubectl cp' fungerar...
-```
-
-Ladda ner heap dumpen från poddens volym till din lokala maskin:
-```bash
 kubectl cp heapdump-pod:/dumps/oom.hprof ./oom.hprof
-
-# Verifiera att filen laddades ner:
 ls -lh ./oom.hprof
 ```
-
-> [!NOTE]
-> **Intervju-insikt (Varför podden måste hållas vid liv):**  
-> `kubectl cp` kör `tar` under huven via `kubectl exec` inuti containern. Om containern tillåts dö direkt vid `OutOfMemoryError` hamnar podden i tillståndet `Failed`, vilket ger felet `cannot exec into a container in a completed pod`.  
-> I testmanifestet håller ett `sleep 3600`-skal containern vid liv i `Running`-läge så att du hinner ladda ner dumpen. I produktion skickas dumpar istället automatiskt till S3 eller sparas på en delad `PersistentVolumeClaim` (PVC).
-
----
 
 ### Steg 5: Städa upp
 ```bash
@@ -189,31 +203,13 @@ kubectl delete -f k8s-oom-demo.yaml
 
 ---
 
-## 8. Senior Intervju-djupdykning: "The Dead Pod Dilemma" & `kubectl cp`
+## 6. Senior Intervju-djupdykning: Tre produktionsmönster för Crash Dumps
 
-En mycket vanlig och utslagsgivande intervjufråga för seniora backend- och cloud-ingenjörer är:
-> *"Vi har konfigurerat JVM med `-XX:+HeapDumpOnOutOfMemoryError` i Kubernetes. Men när podden kraschar med OOM får vi felet `error: cannot exec into a container in a completed pod; current phase is Failed` när vi kör `kubectl cp`. Varför händer detta, och hur hämtar man heap dumps i en riktig produktionsmiljö?"*
+I en riktig produktionsmiljö körs aldrig manuella `kubectl cp`-kommandon mot kraschade poddar. Istället används följande etablerade mönster:
 
----
-
-### A. Varför fallerar `kubectl cp` på kraschade poddar?
-1. **Hur `kubectl cp` fungerar under huven:**  
-   `kubectl cp` kopierar inte filer över nätverket via magi. Det anropar `kubectl exec` under huven och startar en `tar`-process inuti containern för att strömma filen som en tar-ström över Kubelets websocket/SPDY-anslutning.
-2. **Kubelets begränsning:**  
-   När Java-processen (PID 1) kastar `OutOfMemoryError` och avslutas, går containern direkt till status `Terminated` och poddens fas blir `Failed` (eller `Completed`). Kubelet tillåter **aldrig** `exec` in i en container som inte är i tillståndet `Running`.
-3. **Krav på binärer:**  
-   `kubectl cp` kräver dessutom att `tar` finns installerat i containern. Minimala distroless- eller scratch-images saknar ofta `tar` och kan därför inte använda `kubectl cp` alls.
-
----
-
-### B. Tre produktionsmönster för Heap Dump-hantering
-
-I en riktig produktionsmiljö sitter ingen utvecklare och kör manuella `kubectl cp`-kommandon mot enskilda poddar. Istället används följande etablerade mönster:
-
-#### Mönster 1: Automatisk uppladdning till Object Storage (S3 / GCS / Azure Blob) – *Bästa praxis*
+### Mönster 1: Automatisk uppladdning till Object Storage (S3 / GCS / Azure Blob) – *Bästa praxis*
 Containern körs med ett startskript som fångar upp kraschen eller en sidecar-process som övervakar dump-katalogen:
 ```bash
-# Startskript / Entrypoint i Docker
 java -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/dumps/oom.hprof -jar app.jar || true
 
 if [ -f /dumps/oom.hprof ]; then
@@ -221,26 +217,11 @@ if [ -f /dumps/oom.hprof ]; then
     aws s3 cp /dumps/oom.hprof "s3://prod-heapdumps/service-$(hostname)-$(date +%s).hprof"
 fi
 ```
-* **Fördel:** Podden kan starta om och återhämta sig direkt utan mänsklig inblandning. Utvecklingsteamet får ett larm i Slack med en länk direkt till S3-objektet.
+* **Fördel:** Podden startar om omedelbart utan att blockeras. Utvecklarna får ett larm i Slack med en länk direkt till S3-objektet.
 
----
-
-#### Mönster 2: Delad PersistentVolumeClaim (PVC)
+### Mönster 2: Delad PersistentVolumeClaim (PVC)
 * Montera en delad nätverksvolym (t.ex. AWS EFS eller NFS med `ReadWriteMany`) på `/dumps`.
-* **Hur man läser filen:**  
-  När applikationspodden dör ligger dumpen kvar säkert på nätverkslagringen. En tekniker eller ett analysjobb startar en enkel `alpine`-pod kopplad till samma PVC och kopierar ut filen.
+* När applikationspodden dör ligger dumpen kvar säkert på nätverkslagringen och kan läsas av en separat felsökningspod.
 
----
-
-#### Mönster 3: Node Volume Inspection / Ephemeral Containers
-* Om dumpen skrevs till en lokal hostPath eller containerns lokala lagring innan den dog, kan en klusteradministratör SSH:a till K8s-woker-noden och hitta filen direkt i Kubelets volymkatalog:
-  `/var/lib/kubelet/pods/<pod-uid>/volumes/...`
-
----
-
-#### Mönster 4: Keep-Alive Sleep Wrapper (För lokala labb & felsökning)
-* Det mönster vi använder i [k8s-oom-demo.yaml](file:///backend/03-jvm-memory-gc/k8s-oom-demo.yaml):  
-  Om Java kraschar fångas exit-koden upp och skriptet kör `sleep 3600`. Då förblir containern `Running`, och `kubectl cp` fungerar perfekt för manuell analys!
-
-
-
+### Mönster 3: Keep-Alive Sleep Wrapper (För lokala labb & felsökning)
+* Om Java kraschar fångas exit-koden upp och skriptet kör `sleep 3600`. Då förblir containern `Running`, och `kubectl cp` fungerar för manuell extrahering.
