@@ -14,6 +14,8 @@ I Kubernetes dör containrar plötsligt med **Exit Code 137 (OOMKilled)** utan a
 * **`-XX:MaxRAMPercentage=75.0`:** Det rekommenderade sättet att konfigurera JVM i containrar så att 25% sparas till OS-buffers, trådstackar och Metaspace.
 * **Off-Heap / Metaspace:** Området där klassmetadata lagras. Till skillnad från gamla PermGen allokeras Metaspace i native memory.
 * **Heap Dump (`.hprof`):** En ögonblicksbild av alla objekt i minnet vid kraschögonblicket.
+* **The "Dead Pod" Exec Limitation:** Begränsningen att `kubectl exec` och `kubectl cp` fallerar med `cannot exec into a container in a completed pod` om processen dött.
+* **Automated Crash Dump Pipeline:** Automatisk export av kraschdata direkt till S3/Blob Storage vid JVM-avslut istället för manuell extrahering.
 
 ---
 
@@ -184,5 +186,61 @@ ls -lh ./oom.hprof
 ```bash
 kubectl delete -f k8s-oom-demo.yaml
 ```
+
+---
+
+## 8. Senior Intervju-djupdykning: "The Dead Pod Dilemma" & `kubectl cp`
+
+En mycket vanlig och utslagsgivande intervjufråga för seniora backend- och cloud-ingenjörer är:
+> *"Vi har konfigurerat JVM med `-XX:+HeapDumpOnOutOfMemoryError` i Kubernetes. Men när podden kraschar med OOM får vi felet `error: cannot exec into a container in a completed pod; current phase is Failed` när vi kör `kubectl cp`. Varför händer detta, och hur hämtar man heap dumps i en riktig produktionsmiljö?"*
+
+---
+
+### A. Varför fallerar `kubectl cp` på kraschade poddar?
+1. **Hur `kubectl cp` fungerar under huven:**  
+   `kubectl cp` kopierar inte filer över nätverket via magi. Det anropar `kubectl exec` under huven och startar en `tar`-process inuti containern för att strömma filen som en tar-ström över Kubelets websocket/SPDY-anslutning.
+2. **Kubelets begränsning:**  
+   När Java-processen (PID 1) kastar `OutOfMemoryError` och avslutas, går containern direkt till status `Terminated` och poddens fas blir `Failed` (eller `Completed`). Kubelet tillåter **aldrig** `exec` in i en container som inte är i tillståndet `Running`.
+3. **Krav på binärer:**  
+   `kubectl cp` kräver dessutom att `tar` finns installerat i containern. Minimala distroless- eller scratch-images saknar ofta `tar` och kan därför inte använda `kubectl cp` alls.
+
+---
+
+### B. Tre produktionsmönster för Heap Dump-hantering
+
+I en riktig produktionsmiljö sitter ingen utvecklare och kör manuella `kubectl cp`-kommandon mot enskilda poddar. Istället används följande etablerade mönster:
+
+#### Mönster 1: Automatisk uppladdning till Object Storage (S3 / GCS / Azure Blob) – *Bästa praxis*
+Containern körs med ett startskript som fångar upp kraschen eller en sidecar-process som övervakar dump-katalogen:
+```bash
+# Startskript / Entrypoint i Docker
+java -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/dumps/oom.hprof -jar app.jar || true
+
+if [ -f /dumps/oom.hprof ]; then
+    echo "Upptäckte heap dump! Laddar upp till S3..."
+    aws s3 cp /dumps/oom.hprof "s3://prod-heapdumps/service-$(hostname)-$(date +%s).hprof"
+fi
+```
+* **Fördel:** Podden kan starta om och återhämta sig direkt utan mänsklig inblandning. Utvecklingsteamet får ett larm i Slack med en länk direkt till S3-objektet.
+
+---
+
+#### Mönster 2: Delad PersistentVolumeClaim (PVC)
+* Montera en delad nätverksvolym (t.ex. AWS EFS eller NFS med `ReadWriteMany`) på `/dumps`.
+* **Hur man läser filen:**  
+  När applikationspodden dör ligger dumpen kvar säkert på nätverkslagringen. En tekniker eller ett analysjobb startar en enkel `alpine`-pod kopplad till samma PVC och kopierar ut filen.
+
+---
+
+#### Mönster 3: Node Volume Inspection / Ephemeral Containers
+* Om dumpen skrevs till en lokal hostPath eller containerns lokala lagring innan den dog, kan en klusteradministratör SSH:a till K8s-woker-noden och hitta filen direkt i Kubelets volymkatalog:
+  `/var/lib/kubelet/pods/<pod-uid>/volumes/...`
+
+---
+
+#### Mönster 4: Keep-Alive Sleep Wrapper (För lokala labb & felsökning)
+* Det mönster vi använder i [k8s-oom-demo.yaml](file:///backend/03-jvm-memory-gc/k8s-oom-demo.yaml):  
+  Om Java kraschar fångas exit-koden upp och skriptet kör `sleep 3600`. Då förblir containern `Running`, och `kubectl cp` fungerar perfekt för manuell analys!
+
 
 
